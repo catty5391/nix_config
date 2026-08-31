@@ -11,5 +11,13 @@
       ServerAliveInterval = 60;
       ServerAliveCountMax = 3;
     };
+    settings."nas" = {
+      HostName = "192.168.5.155";
+      User = "root";
+      IdentityFile = "~/.ssh/nas";
+      IdentitiesOnly = true;
+      ServerAliveCountMax = 3;
+      ServerAliveInterval = 60;
+    };
   };
 }
