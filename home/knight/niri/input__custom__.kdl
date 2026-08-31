@@ -1,0 +1,18 @@
+gestures {
+    hot-corners { off; }
+}
+
+input {
+    keyboard {
+        xkb
+        numlock
+    }
+    touchpad {
+        tap
+        natural-scroll
+        dwt
+        dwtp
+    }
+    mouse { accel-speed -0.72; }
+    trackpoint
+}

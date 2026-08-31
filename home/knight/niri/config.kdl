@@ -1,0 +1,60 @@
+// NyxNiri on NixOS: upstream visual modules with host-specific files kept local.
+include "monitor.kdl"
+include "effects.kdl"
+include "input__custom__.kdl"
+include "layout.kdl"
+include "animations.kdl"
+include "rules.kdl"
+include "binds.kdl"
+
+overview {
+    backdrop-color "#4c566a90"
+    workspace-shadow { off; }
+}
+
+environment {
+    XDG_CURRENT_DESKTOP "niri"
+    XDG_SESSION_TYPE "wayland"
+    GTK_IM_MODULE ""
+    ELECTRON_OZONE_PLATFORM_HINT "auto"
+    QT_QPA_PLATFORM "wayland;xcb"
+    QT_QPA_PLATFORMTHEME "gtk3"
+    QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
+    LANG "zh_CN.UTF-8"
+    LC_ALL "zh_CN.UTF-8"
+}
+output "DP-1" {
+    scale 2
+    mode "3840x2160@120.000"
+}
+// Noctalia is managed by its Home Manager systemd unit.
+spawn-at-startup "nyxniri-eyecare" "--sync"
+spawn-at-startup "bash" "-c" "sleep 8; noctalia msg config-reload"
+spawn-sh-at-startup "sh -c 'wayvnc 0.0.0.0'"
+
+hotkey-overlay { skip-at-startup; }
+prefer-no-csd
+screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+
+debug { honor-xdg-activation-with-invalid-serial; }
+
+recent-windows {
+    binds {
+        Alt+Tab         { next-window scope="output"; }
+        Alt+Shift+Tab   { previous-window scope="output"; }
+        Alt+grave       { next-window filter="app-id"; }
+        Alt+Shift+grave { previous-window filter="app-id"; }
+    }
+    highlight {
+        corner-radius 12
+        active-color "#b6c7e7"
+        urgent-color "#ffb4ab"
+    }
+}
+
+cursor {
+    xcursor-theme "Adwaita"
+    xcursor-size 24
+}
+
+include "__custom__.kdl"

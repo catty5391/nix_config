@@ -1,0 +1,20 @@
+// Local additions that must survive NyxNiri source updates.
+window-rule {
+    match app-id="Alacritty"
+    match app-id="neovide"
+    opacity 0.92
+}
+
+window-rule {
+    match app-id="floating_terminal"
+    opacity 0.92
+    open-floating true
+    default-column-width { proportion 0.6; }
+    default-window-height { proportion 0.6; }
+}
+
+/-window-rule {
+    match app-id=r#"^org\.keepassxc\.KeePassXC$"#
+    match app-id=r#"^org\.gnome\.World\.Secrets$"#
+    block-out-from "screen-capture"
+}

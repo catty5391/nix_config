@@ -1,0 +1,57 @@
+[search]
+default_engine = "bing"
+placeholder = "Search or ask..."
+
+[[search_engines]]
+id = "bing"
+name = "Bing"
+icon = "󰍉"
+url = "https://www.bing.com/search?q={query}"
+
+[[search_engines]]
+id = "google"
+name = "Google"
+icon = "󰊭"
+url = "https://www.google.com/search?q={query}"
+
+[[search_engines]]
+id = "chatgpt"
+name = "ChatGPT"
+icon = "󰚩"
+url = "https://chatgpt.com/?hints=search&q={query}"
+
+[[items]]
+id = "kitty"
+name = "Kitty"
+desc = "Terminal"
+icon = "󰞷"
+cmd = "kitty"
+shortcut = "1"
+color_key = "secondary"
+
+[[items]]
+id = "files"
+name = "Files"
+desc = "Nautilus"
+icon = "󰉋"
+cmd = "nautilus"
+shortcut = "2"
+color_key = "secondary"
+
+[[items]]
+id = "editor"
+name = "Neovim"
+desc = "CookNixvim"
+icon = ""
+cmd = "kitty nvim"
+shortcut = "3"
+color_key = "secondary"
+
+[[items]]
+id = "wallpaper"
+name = "Wallpapers"
+desc = "Static & Live"
+icon = "󰸉"
+cmd = "nyxniri-wallpaper-picker"
+shortcut = "4"
+color_key = "secondary"
