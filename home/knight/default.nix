@@ -20,6 +20,7 @@ in {
     ./music
     ./ssh
     ./apps
+    ./sessionPath.nix
   ];
 
   home.packages = with pkgs; [
@@ -97,8 +98,6 @@ in {
     LC_CTYPE = "zh_CN.UTF-8"; # 字符显示支持中文
     LC_MESSAGES = "en_US.UTF-8"; # 程序输出信息保持英文
   };
-
-  home.sessionPath = ["$HOME/.local/bin"];
 
   home.stateVersion = "26.05";
   # home.enableNixpkgsReleaseCheck = false;
