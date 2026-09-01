@@ -62,6 +62,7 @@
     btrfs-progs
     smartmontools
     codex
+    uv
   ];
 
   environment.sessionVariables = {
