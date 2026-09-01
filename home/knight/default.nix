@@ -3,7 +3,12 @@
   pkgs,
   lib,
   ...
-}: {
+}: let
+  mediaPlayers = [
+    "mpv.desktop"
+    "vlc.desktop"
+  ];
+in {
   imports = [
     ./programs
     ./terminal
@@ -50,6 +55,27 @@
     "image/png" = ["imv.desktop"];
     "image/jpeg" = ["imv.desktop"];
     "image/gif" = ["imv.desktop"];
+    "audio/aac" = mediaPlayers;
+    "audio/flac" = mediaPlayers;
+    "audio/mp4" = mediaPlayers;
+    "audio/mpeg" = mediaPlayers;
+    "audio/ogg" = mediaPlayers;
+    "audio/opus" = mediaPlayers;
+    "audio/webm" = mediaPlayers;
+    "audio/x-m4a" = mediaPlayers;
+    "audio/x-ms-wma" = mediaPlayers;
+    "audio/x-wav" = mediaPlayers;
+    "video/3gpp" = mediaPlayers;
+    "video/3gpp2" = mediaPlayers;
+    "video/mp2t" = mediaPlayers;
+    "video/mp4" = mediaPlayers;
+    "video/mpeg" = mediaPlayers;
+    "video/ogg" = mediaPlayers;
+    "video/quicktime" = mediaPlayers;
+    "video/webm" = mediaPlayers;
+    "video/x-flv" = mediaPlayers;
+    "video/x-matroska" = mediaPlayers;
+    "video/x-msvideo" = mediaPlayers;
     "text/html" = "google-chrome.desktop";
     "x-scheme-handler/http" = "google-chrome.desktop";
     "x-scheme-handler/https" = "google-chrome.desktop";

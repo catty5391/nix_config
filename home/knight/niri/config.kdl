@@ -25,7 +25,7 @@ environment {
 }
 output "DP-1" {
     scale 2
-    mode "3840x2160@120.000"
+    mode "3840x2160@120.005"
 }
 // Noctalia is managed by its Home Manager systemd unit.
 spawn-at-startup "nyxniri-eyecare" "--sync"
@@ -36,7 +36,11 @@ hotkey-overlay { skip-at-startup; }
 prefer-no-csd
 screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
 
-debug { honor-xdg-activation-with-invalid-serial; }
+debug {
+    // Work around NVIDIA frame-queue synchronization flicker.
+    wait-for-frame-completion-before-queueing
+    honor-xdg-activation-with-invalid-serial
+}
 
 recent-windows {
     binds {
