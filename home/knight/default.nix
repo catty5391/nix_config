@@ -14,7 +14,6 @@
     ./wallpaper
     ./music
     ./ssh
-    ./idea
     ./apps
   ];
 

@@ -6,5 +6,8 @@
     ./lazygit.nix
     ./dev.nix
     ./git.nix
+    ./idea.nix
+    ./vscode.nix
+    ./navicat.nix
   ];
 }

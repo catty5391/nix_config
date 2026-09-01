@@ -24,7 +24,7 @@ in {
         qt6Packages.fcitx5-configtool
 
         # 如果你只用 Rime，这个其实可以删除
-	qt6Packages.fcitx5-chinese-addons
+        qt6Packages.fcitx5-chinese-addons
       ];
 
       # 输入法排序
@@ -77,8 +77,7 @@ in {
   };
 
   # 安装 Candlelight 主题
-  xdg.dataFile."fcitx5/themes/macOS-light".source =
-    "${inputs.fcitx5-candlelight}/macOS-light";
+  xdg.dataFile."fcitx5/themes/macOS-light".source = "${inputs.fcitx5-candlelight}/macOS-light";
 
   # Home Manager already starts fcitx5-daemon.service. Mask the package's XDG
   # autostart entry so Niri does not launch a competing second instance.
