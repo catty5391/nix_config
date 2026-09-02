@@ -62,7 +62,7 @@
     btrfs-progs
     smartmontools
     codex
-    uv
+    sshm
   ];
 
   environment.sessionVariables = {
@@ -72,6 +72,8 @@
     QT5_IM_MODULE = "fcitx";
     XMODIFIERS = "@im=fcitx";
   };
+
+  environment.localBinInPath = true;
 
   services.udisks2.enable = true;
   systemd.sleep.settings.Sleep = {
