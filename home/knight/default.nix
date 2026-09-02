@@ -20,7 +20,6 @@ in {
     ./music
     ./ssh
     ./apps
-    ./sessionPath.nix
   ];
 
   home.packages = with pkgs; [
