@@ -14,12 +14,6 @@ window-rule {
   }
 }
 
-layer-rule {
-    background-effect {
-        blur true
-    }
-}
-
 blur {
     passes 3
     offset 5
