@@ -1,8 +1,4 @@
-// Local additions that must survive NyxNiri source updates.
-window-rule {
-    match app-id="Alacritty"
-    match app-id="neovide"
-}
+
 
 window-rule {
     match app-id="floating_terminal"
@@ -12,10 +8,23 @@ window-rule {
 }
 
 window-rule {
-  opacity 0.94
+  opacity 0.92
   background-effect {
     blur true
   }
+}
+
+layer-rule {
+    background-effect {
+        blur true
+    }
+}
+
+blur {
+    passes 3
+    offset 5
+    noise 0.02
+    saturation 1.5
 }
 
 /-window-rule {
