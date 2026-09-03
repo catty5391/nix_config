@@ -7,7 +7,7 @@ window-rule {
 
 window-rule {
     match app-id="floating_terminal"
-    opacity 0.92
+    opacity 0.98
     open-floating true
     default-column-width { proportion 0.6; }
     default-window-height { proportion 0.6; }
