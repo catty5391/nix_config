@@ -1,12 +1,17 @@
-{lib, pkgs, ...}: let
-  niriGdmSession = pkgs.runCommand "niri-gdm-session" {
-    passthru.providedSessions = ["niri"];
-  } ''
-    mkdir -p $out/share/wayland-sessions
-    substitute ${pkgs.niri}/share/wayland-sessions/niri.desktop \
-      $out/share/wayland-sessions/niri.desktop \
-      --replace-fail "Exec=niri-session" "Exec=${pkgs.niri}/bin/niri-session"
-  '';
+{
+  lib,
+  pkgs,
+  ...
+}: let
+  niriGdmSession =
+    pkgs.runCommand "niri-gdm-session" {
+      passthru.providedSessions = ["niri"];
+    } ''
+      mkdir -p $out/share/wayland-sessions
+      substitute ${pkgs.niri}/share/wayland-sessions/niri.desktop \
+        $out/share/wayland-sessions/niri.desktop \
+        --replace-fail "Exec=niri-session" "Exec=${pkgs.niri}/bin/niri-session"
+    '';
 in {
   fonts = {
     enableDefaultPackages = true;
@@ -17,6 +22,7 @@ in {
       dejavu_fonts
       nerd-fonts.fira-code
       nerd-fonts.jetbrains-mono
+      maple-mono.Normal-NF-CN
     ];
     fontconfig = {
       enable = true;
