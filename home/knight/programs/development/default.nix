@@ -9,5 +9,6 @@
     ./idea.nix
     ./vscode.nix
     ./navicat.nix
+    ./yazi.nix
   ];
 }
