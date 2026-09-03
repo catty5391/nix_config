@@ -9,16 +9,16 @@
     settings = {
       plugin = {
         prepend_fetchers = [
-          {
-            id = "git";
-            name = "*";
+            {
+            url = "*";
             run = "git";
-          }
-          {
-            id = "git";
-            name = "*/";
+            group = "git";
+            }
+            {
+            url = "*/";
             run = "git";
-          }
+            group = "git";
+            }
         ];
       };
     };
