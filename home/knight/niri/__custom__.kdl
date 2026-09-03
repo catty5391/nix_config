@@ -2,15 +2,20 @@
 window-rule {
     match app-id="Alacritty"
     match app-id="neovide"
-    opacity 0.92
 }
 
 window-rule {
     match app-id="floating_terminal"
-    opacity 0.98
     open-floating true
     default-column-width { proportion 0.6; }
     default-window-height { proportion 0.6; }
+}
+
+window-rule {
+  opacity 0.94
+  background-effect {
+    blur true
+  }
 }
 
 /-window-rule {
