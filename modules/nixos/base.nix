@@ -41,6 +41,7 @@
   # Set them with passwd and ~/.ssh/authorized_keys after installation.
 
   environment.systemPackages = with pkgs; [
+    openssl
     wechat
     zellij
     p7zip
