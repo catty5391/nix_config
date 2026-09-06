@@ -39,6 +39,41 @@
         "type": "github"
       }
     },
+    "elegant-grub2-theme-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782202092,
+        "narHash": "sha256-4yPldMZ7g6FrGGvoF2oxvS6cGlM2X/ALX0mfq/Dax8c=",
+        "owner": "vinceliuice",
+        "repo": "Elegant-grub2-themes",
+        "rev": "f8a8d41c8f306f8bdfae41db1a425cf0a2451477",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vinceliuice",
+        "repo": "Elegant-grub2-themes",
+        "type": "github"
+      }
+    },
+    "elegant-grub2-themes": {
+      "inputs": {
+        "elegant-grub2-theme-src": "elegant-grub2-theme-src",
+        "nixpkgs": "nixpkgs_4"
+      },
+      "locked": {
+        "lastModified": 1782202092,
+        "narHash": "sha256-4yPldMZ7g6FrGGvoF2oxvS6cGlM2X/ALX0mfq/Dax8c=",
+        "owner": "vinceliuice",
+        "repo": "elegant-grub2-themes",
+        "rev": "f8a8d41c8f306f8bdfae41db1a425cf0a2451477",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vinceliuice",
+        "repo": "elegant-grub2-themes",
+        "type": "github"
+      }
+    },
     "fcitx5-candlelight": {
       "flake": false,
       "locked": {
@@ -194,6 +229,22 @@
     },
     "nixpkgs_4": {
       "locked": {
+        "lastModified": 1788614874,
+        "narHash": "sha256-7QYjT2vHLuX9Z1pdxHXDKCbh1CR3D/2rywB9Tx0MPRg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "c043004d1c6985732bcc1cbc5a9c9aecbbb4e0f0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_5": {
+      "locked": {
         "lastModified": 1787204541,
         "narHash": "sha256-OURZPknrTjQrlNyxPdqzyqmU/81Wes1CUP/Ft1Rv/YI=",
         "owner": "NixOS",
@@ -285,9 +336,10 @@
       "inputs": {
         "CookNixvim": "CookNixvim",
         "catppuccin": "catppuccin",
+        "elegant-grub2-themes": "elegant-grub2-themes",
         "fcitx5-candlelight": "fcitx5-candlelight",
         "home-manager": "home-manager",
-        "nixpkgs": "nixpkgs_4",
+        "nixpkgs": "nixpkgs_5",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "noctalia": "noctalia",
         "noctalia-plugins": "noctalia-plugins",
