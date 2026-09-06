@@ -46,6 +46,9 @@
 
     catppuccin.url = "github:catppuccin/nix/release-26.05";
     CookNixvim.url = "github:Youthdreamer/CookNixvim";
+    elegant-grub2-themes = {
+      url = "github:vinceliuice/elegant-grub2-themes";
+    };
   };
 
   outputs = inputs @ {
@@ -90,6 +93,7 @@
             home-manager.users.${username}.imports = [
               catppuccin.homeModules.catppuccin
               noctalia.homeModules.default
+              inputs.elegant-grub2-themes.nixosModules.default
               ./home/knight
             ];
           }
