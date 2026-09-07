@@ -39,41 +39,6 @@
         "type": "github"
       }
     },
-    "elegant-grub2-theme-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1782202092,
-        "narHash": "sha256-4yPldMZ7g6FrGGvoF2oxvS6cGlM2X/ALX0mfq/Dax8c=",
-        "owner": "vinceliuice",
-        "repo": "Elegant-grub2-themes",
-        "rev": "f8a8d41c8f306f8bdfae41db1a425cf0a2451477",
-        "type": "github"
-      },
-      "original": {
-        "owner": "vinceliuice",
-        "repo": "Elegant-grub2-themes",
-        "type": "github"
-      }
-    },
-    "elegant-grub2-themes": {
-      "inputs": {
-        "elegant-grub2-theme-src": "elegant-grub2-theme-src",
-        "nixpkgs": "nixpkgs_4"
-      },
-      "locked": {
-        "lastModified": 1782202092,
-        "narHash": "sha256-4yPldMZ7g6FrGGvoF2oxvS6cGlM2X/ALX0mfq/Dax8c=",
-        "owner": "vinceliuice",
-        "repo": "elegant-grub2-themes",
-        "rev": "f8a8d41c8f306f8bdfae41db1a425cf0a2451477",
-        "type": "github"
-      },
-      "original": {
-        "owner": "vinceliuice",
-        "repo": "elegant-grub2-themes",
-        "type": "github"
-      }
-    },
     "fcitx5-candlelight": {
       "flake": false,
       "locked": {
@@ -127,6 +92,24 @@
       "original": {
         "owner": "hercules-ci",
         "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "grub2-themes": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_4"
+      },
+      "locked": {
+        "lastModified": 1788271742,
+        "narHash": "sha256-H4IIqM+fmq9t3ZPHGs9kiuoQzau9AhCGQBSfClqQ/44=",
+        "owner": "vinceliuice",
+        "repo": "grub2-themes",
+        "rev": "4c5a77125b93f833edc9bf7b14a899faa8ac79c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vinceliuice",
+        "repo": "grub2-themes",
         "type": "github"
       }
     },
@@ -229,16 +212,16 @@
     },
     "nixpkgs_4": {
       "locked": {
-        "lastModified": 1788614874,
-        "narHash": "sha256-7QYjT2vHLuX9Z1pdxHXDKCbh1CR3D/2rywB9Tx0MPRg=",
+        "lastModified": 1788791099,
+        "narHash": "sha256-7z1VMjEClu4UDv7yUr7OcuHQNCyFxe1homSxTT5ayO4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c043004d1c6985732bcc1cbc5a9c9aecbbb4e0f0",
+        "rev": "26859feeb223f9396395ac07b3dc74676fab12c9",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixos-unstable",
+        "ref": "master",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -336,8 +319,8 @@
       "inputs": {
         "CookNixvim": "CookNixvim",
         "catppuccin": "catppuccin",
-        "elegant-grub2-themes": "elegant-grub2-themes",
         "fcitx5-candlelight": "fcitx5-candlelight",
+        "grub2-themes": "grub2-themes",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs_5",
         "nixpkgs-unstable": "nixpkgs-unstable",
