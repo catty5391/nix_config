@@ -46,8 +46,8 @@
 
     catppuccin.url = "github:catppuccin/nix/release-26.05";
     CookNixvim.url = "github:Youthdreamer/CookNixvim";
-    elegant-grub2-themes = {
-      url = "github:vinceliuice/elegant-grub2-themes";
+    grub2-themes = {
+      url = "github:vinceliuice/grub2-themes";
     };
   };
 
@@ -79,7 +79,7 @@
         modules = [
           hostModule
           catppuccin.nixosModules.catppuccin
-          inputs.elegant-grub2-themes.nixosModules.default
+          inputs.grub2-themes.nixosModules.default
           home-manager.nixosModules.home-manager
           {
             home-manager.useGlobalPkgs = true;

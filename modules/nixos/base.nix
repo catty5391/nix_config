@@ -102,14 +102,11 @@
   };
 
   boot.loader.grub.configurationLimit = 3;
-  boot.loader.elegant-grub2-theme = {
+  boot.loader.grub2-theme = {
     enable = true;
-    theme = "mojave";
-    type = "blur";
-    side = "right";
-    color = "dark";
-    screen = "1080p";
-    logo = "system";
+    theme = "whitesur";
+    footer = true;
+    screen = "4k";
   };
   nix.gc = {
     automatic = lib.mkDefault true;
