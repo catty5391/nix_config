@@ -8,18 +8,11 @@ window-rule {
 }
 
 window-rule {
-  opacity 0.92
-  background-effect {
-    blur true
-  }
+  opacity 1
+
 }
 
-blur {
-    passes 3
-    offset 5
-    noise 0.02
-    saturation 1.5
-}
+
 
 /-window-rule {
     match app-id=r#"^org\.keepassxc\.KeePassXC$"#
