@@ -1,5 +1,3 @@
-
-
 window-rule {
     match app-id="floating_terminal"
     open-floating true
@@ -7,12 +5,13 @@ window-rule {
     default-window-height { proportion 0.6; }
 }
 
+// Override NyxNiri's translucent focused and unfocused window rules.
 window-rule {
-  opacity 1
-
+    opacity 1.0
+    background-effect {
+        blur false
+    }
 }
-
-
 
 /-window-rule {
     match app-id=r#"^org\.keepassxc\.KeePassXC$"#

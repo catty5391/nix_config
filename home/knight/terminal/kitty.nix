@@ -25,8 +25,8 @@ _: {
       bold_font auto
       italic_font auto
       bold_italic_font auto
-      background_opacity 0.90
-      background_blur 20
+      background_opacity 1.0
+      background_blur 0
       hide_window_decorations yes
       confirm_os_window_close 0
       remember_window_size no

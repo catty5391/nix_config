@@ -2,6 +2,7 @@
   lib,
   pkgs,
   username,
+  pkgs-unstable,
   ...
 }: {
   nix.settings = {
@@ -40,32 +41,35 @@
   # Passwords and authorized keys intentionally remain local mutable state.
   # Set them with passwd and ~/.ssh/authorized_keys after installation.
 
-  environment.systemPackages = with pkgs; [
-    openssl
-    wechat
-    zellij
-    p7zip
-    wineWow64Packages.stable
-    winetricks
-    google-chrome
-    pulseaudio
-    pciutils
-    ffmpeg
-    libva
-    libva-utils
-    power-profiles-daemon
-    git
-    curl
-    wget
-    bluez
-    cachix
-    mdadm
-    lvm2
-    btrfs-progs
-    smartmontools
-    codex
-    sshm
-  ];
+  environment.systemPackages = with pkgs;
+    [
+      openssl
+      wechat
+      zellij
+      p7zip
+      wineWow64Packages.stable
+      winetricks
+      google-chrome
+      pulseaudio
+      pciutils
+      ffmpeg
+      libva
+      libva-utils
+      power-profiles-daemon
+      git
+      curl
+      wget
+      bluez
+      cachix
+      mdadm
+      lvm2
+      btrfs-progs
+      smartmontools
+      sshm
+    ]
+    ++ (with pkgs-unstable; [
+      codex
+    ]);
 
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";

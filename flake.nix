@@ -1,5 +1,5 @@
 {
-  description = "Reproducible NixOS, Niri, Noctalia and Nixvim configuration";
+  description = "own nixos System";
 
   nixConfig = {
     substituters = [
@@ -46,9 +46,7 @@
 
     catppuccin.url = "github:catppuccin/nix/release-26.05";
     CookNixvim.url = "github:Youthdreamer/CookNixvim";
-    grub2-themes = {
-      url = "github:vinceliuice/grub2-themes";
-    };
+    grub2-themes.url = "github:vinceliuice/grub2-themes";
   };
 
   outputs = inputs @ {
@@ -61,10 +59,12 @@
     fcitx5-candlelight,
     ...
   }: let
-    system = "x86_64-linux";
     username = "knight";
 
-    mkHost = hostModule:
+    mkHost = {
+      system,
+      hostModule,
+    }:
       nixpkgs.lib.nixosSystem {
         inherit system;
 
@@ -100,8 +100,14 @@
         ];
       };
   in {
-    nixosConfigurations.nas-linux = mkHost ./hosts/nas-linux;
-    nixosConfigurations.msi = mkHost ./hosts/msi;
+    nixosConfigurations.nas-linux = mkHost {
+      system = "x86_64-linux";
+      hostModule = ./hosts/nas-linux;
+    };
+    nixosConfigurations.msi = mkHost {
+      system = "x86_64-linux";
+      hostModule = ./hosts/msi;
+    };
     # Keep the previous selector working during migration.
   };
 }
