@@ -1,6 +1,4 @@
-{ pkgs, ... }:
-
-{
+{pkgs, ...}: {
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -25,6 +23,7 @@
       l = "ls -CF";
       rebuild = "sudo nixos-rebuild switch --flake /etc/nixos#msi";
       docker-ps = "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'";
+      ide = "idea . >/dev/null 2>&1 & disown";
     };
 
     interactiveShellInit = ''
@@ -37,7 +36,7 @@
 
   programs.starship = {
     enable = true;
-    presets = [ "nerd-font-symbols" ];
+    presets = ["nerd-font-symbols"];
 
     settings = {
       # 主题配置

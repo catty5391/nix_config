@@ -44,6 +44,11 @@
       flake = false;
     };
 
+    seu-autologin = {
+      url = "git+ssh://git@github.com/catty5391/seu-autologin.git";
+      flake = false;
+    };
+
     catppuccin.url = "github:catppuccin/nix/release-26.05";
     CookNixvim.url = "github:Youthdreamer/CookNixvim";
     grub2-themes.url = "github:vinceliuice/grub2-themes";
