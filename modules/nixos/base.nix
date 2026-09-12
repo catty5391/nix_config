@@ -66,6 +66,7 @@
       btrfs-progs
       smartmontools
       sshm
+      pstree
     ]
     ++ (with pkgs-unstable; [
       codex

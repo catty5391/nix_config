@@ -49,6 +49,7 @@
       flake = false;
     };
 
+    llm-agents.url = "github:numtide/llm-agents.nix";
     catppuccin.url = "github:catppuccin/nix/release-26.05";
     CookNixvim.url = "github:Youthdreamer/CookNixvim";
     grub2-themes.url = "github:vinceliuice/grub2-themes";
