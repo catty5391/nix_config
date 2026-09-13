@@ -16,7 +16,10 @@
       8096
       7789
     ];
-    allowedUDPPorts = [45123];
+    allowedUDPPorts = [
+      45123
+      60001
+    ];
   };
 
   boot.kernel.sysctl = {
