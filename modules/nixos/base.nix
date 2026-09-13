@@ -67,6 +67,7 @@
       smartmontools
       sshm
       pstree
+      mosh
     ]
     ++ (with pkgs-unstable; [
       codex
