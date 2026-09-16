@@ -3,13 +3,12 @@
   pkgs,
   ...
 }: {
-  # Enable NVIDIA's VA-API/NVDEC path in Google Chrome. Without these flags,
-  # video pages fall back to CPU decoding and repeatedly upload frames to the
-  # GPU, which can make Chrome's renderer and GPU process spike together.
+  # NVIDIA video decoding can replay stale frames after seeking in Chrome.
+  # Use software video decoding while keeping GPU compositing enabled.
   nixpkgs.overlays = [
     (_final: prev: {
       google-chrome = prev.google-chrome.override {
-        commandLineArgs = "--ozone-platform=wayland --enable-features=WaylandWindowDecorations,AcceleratedVideoDecodeLinuxGL,VaapiOnNvidiaGPUs --enable-wayland-ime=true --ignore-gpu-blocklist --use-gl=angle --use-angle=gl";
+        commandLineArgs = "--ozone-platform=wayland --enable-features=WaylandWindowDecorations --enable-wayland-ime=true --ignore-gpu-blocklist --use-gl=angle --use-angle=gl --disable-accelerated-video-decode";
       };
     })
   ];

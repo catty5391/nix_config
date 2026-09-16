@@ -1,0 +1,5 @@
+{
+  imports = [
+    ./seu-autologin.nix
+  ];
+}

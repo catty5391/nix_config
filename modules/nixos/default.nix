@@ -8,7 +8,6 @@
     ./java.nix
     ./tailscale.nix
     ./proxy.nix
-    ./seu-autologin.nix
     ./nixvim.nix
     ./llm.nix
   ];

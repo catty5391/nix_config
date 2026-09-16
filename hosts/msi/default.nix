@@ -4,6 +4,8 @@
     ./hardware.nix
     ./networking.nix
     ../../modules/nixos
+    ./app
+    ./systemd
   ];
   boot.loader.systemd-boot.enable = false;
   boot.loader.grub = {
