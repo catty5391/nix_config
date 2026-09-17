@@ -68,6 +68,7 @@
       sshm
       pstree
       mosh
+      man-pages
     ]
     ++ (with pkgs-unstable; [
       codex

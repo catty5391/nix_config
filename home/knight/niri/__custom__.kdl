@@ -13,6 +13,16 @@ window-rule {
     }
 }
 
+// Noctalia supplies its own rounded blur region. Sample the windows behind
+// the dock instead of Niri's default wallpaper-only xray background, which
+// shows through the antialiased corners as bright wallpaper-colored pixels.
+layer-rule {
+    match namespace="^noctalia-dock$"
+    background-effect {
+        xray false
+    }
+}
+
 /-window-rule {
     match app-id=r#"^org\.keepassxc\.KeePassXC$"#
     match app-id=r#"^org\.gnome\.World\.Secrets$"#
