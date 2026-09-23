@@ -6,6 +6,7 @@
     ../../modules/nixos
     ./app
     ./systemd
+    ./develop
   ];
   boot.loader.systemd-boot.enable = false;
   boot.loader.grub = {

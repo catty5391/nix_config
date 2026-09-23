@@ -13,13 +13,19 @@ window-rule {
     }
 }
 
-// Noctalia supplies its own rounded blur region. Sample the windows behind
-// the dock instead of Niri's default wallpaper-only xray background, which
-// shows through the antialiased corners as bright wallpaper-colored pixels.
+// Noctalia supplies its own rounded blur regions. Its foreground surfaces
+// and pop-ups should sample the windows beneath them, avoiding wallpaper
+// bleeding through rounded edges with Niri's default xray background.
 layer-rule {
-    match namespace="^noctalia-dock$"
+    match namespace="^noctalia-" layer="top"
+    match namespace="^noctalia-" layer="overlay"
     background-effect {
         xray false
+    }
+    popups {
+        background-effect {
+            xray false
+        }
     }
 }
 

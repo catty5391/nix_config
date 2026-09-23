@@ -32,6 +32,7 @@
       "kvm"
       "libvirtd"
       "i2c"
+      "wireshark"
     ];
   };
 

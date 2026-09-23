@@ -19,6 +19,7 @@ environment {
     ELECTRON_OZONE_PLATFORM_HINT "auto"
     QT_QPA_PLATFORM "wayland;xcb"
     QT_QPA_PLATFORMTHEME "gtk3"
+    QT_STYLE_OVERRIDE "adwaita-dark"
     QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
     LANG "zh_CN.UTF-8"
     LC_ALL "zh_CN.UTF-8"
@@ -29,7 +30,7 @@ output "DP-1" {
 }
 // Noctalia is managed by its Home Manager systemd unit.
 spawn-at-startup "nyxniri-eyecare" "--sync"
-spawn-at-startup "bash" "-c" "sleep 8; noctalia msg config-reload"
+spawn-at-startup "bash" "-c" "sleep 8; noctalia msg config-reload; ~/.config/noctalia/theme-sync.sh dark"
 spawn-sh-at-startup "sh -c 'wayvnc 0.0.0.0'"
 
 hotkey-overlay { skip-at-startup; }

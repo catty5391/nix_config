@@ -13,6 +13,7 @@
     [
       "/home/user/图片/Wallpapers"
       "/home/user"
+      ''mode = "auto"''
       ''[widget."ray/echolyrics:echolyrics"]
 capsule = false
 ''
@@ -25,6 +26,7 @@ builtin_ids = ["kitty", "qt", "starship"]''
     [
       "${homeDirectory}/.config/wallpaper"
       homeDirectory
+      ''mode = "dark"''
       ""
       ''[theme.templates]
 enable_builtin_templates = false
@@ -38,6 +40,18 @@ in {
   programs.noctalia = {
     enable = true;
     systemd.enable = true;
+  };
+
+  dconf.settings."org/gnome/desktop/interface" = {
+    color-scheme = "prefer-dark";
+    gtk-theme = "adw-gtk3-dark";
+  };
+
+  # Install the GTK platform integration and dark style for both Qt versions.
+  qt = {
+    enable = true;
+    platformTheme.name = "gtk3";
+    style.name = "adwaita-dark";
   };
 
   home.packages = with pkgs; [

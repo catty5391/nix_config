@@ -77,6 +77,19 @@
     ]
     (builtins.readFile "${upstream}/configs/niri/layout.kdl");
 in {
+  # XWayland does not inherit Niri's DP-1 scale 2. Fcitx's X11 candidate
+  # window reads Xft.dpi, while its native Wayland window follows the output.
+  # Merge only the DPI resource so other X resources remain intact.
+  systemd.user.services.fcitx5-daemon.Service.ExecStartPre = [
+    (pkgs.writeShellScript "fcitx5-niri-xwayland-dpi" ''
+      if [ "''${XDG_CURRENT_DESKTOP:-}" = niri ] && [ -n "''${DISPLAY:-}" ]; then
+        ${pkgs.xrdb}/bin/xrdb -merge <<'EOF'
+      Xft.dpi: 192
+      EOF
+      fi
+    '')
+  ];
+
   programs.fuzzel.enable = true;
   catppuccin.fuzzel = {
     enable = true;

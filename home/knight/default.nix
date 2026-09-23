@@ -18,7 +18,6 @@ in {
     ./rofi
     ./wallpaper
     ./music
-    ./ssh
     ./apps
   ];
 
