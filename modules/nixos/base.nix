@@ -92,9 +92,6 @@
     AllowHybridSleep = "no";
     AllowSuspendThenHibernate = "no";
   };
-  nixpkgs.config.permittedInsecurePackages = [
-    "nodejs-slim-20.20.2"
-  ];
 
   time.timeZone = "Asia/Shanghai";
   i18n.defaultLocale = "en_US.UTF-8";
