@@ -57,7 +57,7 @@ sudoedit /etc/telegram-openlist-sync.env
 ```
 
 必须填写 `TELEGRAM_BOT_TOKEN`、`ALLOWED_USER_ID`（个人数字 User ID）、
-`OPENLIST_URL` 和 `OPENLIST_TOKEN`。可选项：`SCAN_PATH=/STRM`、
+`OPENLIST_URL` 和 `OPENLIST_TOKEN`。可选项：`SCAN_PATH=/strm`（须与 OpenList 挂载路径大小写一致）、
 `SCAN_LIMIT=0`（不限速）、`SCAN_POLL_INTERVAL=2` 秒、`SCAN_TIMEOUT=3600` 秒。
 环境文件使用 `KEY=value`，不要写 `export`；不会展开 `$VARIABLE` 或执行 shell。
 服务不会继承交互式终端的环境变量。需要代理时在此文件填写 `https_proxy`，
@@ -75,11 +75,38 @@ journalctl -u telegram-openlist-sync -f
 ```
 
 只接受白名单账户的私聊。启动后自动注册 Telegram 命令菜单：
-`/download`、`/downloads`、`/refresh`、`/sync`、`/status`、`/help`、`/start`。
+`/download`、`/downloads`、`/strm`、`/refresh`、`/cancel_refresh`、`/sync`、`/status`、`/reset`、`/help`、`/start`。
 在私聊输入 `/` 或点击输入框旁的菜单按钮即可选择命令。
 点击 `/download` 后会弹出回复输入框，粘贴链接发送即可；也可直接发送 `/download 链接`。
+发送 `/strm` 会读取 `SCAN_PATH`（默认 `/strm`）下的直接子文件夹，按 OpenList 返回的修改时间倒序编号；
+每页显示 10 个文件夹，通过消息下方“上一页 / 下一页”按钮翻页，编号跨页连续。
+再发送 `/refresh 编号`，即可递归刷新该编号文件夹及其子目录（例如第二页的 `/refresh 11`）。
+支持 `/refresh 1 3 5` 或 `/refresh 1,3,5`，空格及中英文逗号均可分隔，重复序号自动去重，按输入顺序依次刷新。
+每批最多选择 5 个文件夹；必须填写序号，不支持空输入、范围或路径。
+格式错误、越界、超过数量限制或列表过期都会整批拒绝，不会部分执行，也不会退回刷新整个下载目录。
+每次只运行一批手动刷新；取消按钮会停止整批后续目录，某个目录请求失败时也会停止该批次。
+列表 15 分钟有效，翻页沿用同一份排序结果；发送 `/strm` 重新获取后旧按钮失效。
+超长文件夹名会在列表中缩略显示，刷新仍使用完整路径。
 交互使用 [Telegram ForceReply](https://core.telegram.org/bots/api#forcereply)。
 菜单注册失败每 5 分钟重试，不影响接收消息。
+
+帮助页和 STRM 列表下方提供 **Reset bot** 按钮，也可发送 `/reset`。
+仅白名单用户私聊可重置。bot 退出后由 systemd 约 10 秒后重新拉起，清除内存中的分页和卡住的线程，
+已保存的下载任务继续跟踪；等待中的命令需重新发送，旧 Reset 按钮失效。
+普通操作在有上限的后台队列中执行，目录请求卡住时仍能接收重置操作。
+重置不会重启 NAS，也不会取消 OpenList 已接收的任务；若在提交链接时重置，请先在 OpenList 后台确认结果再重发。
+NAS 整机死机或无法连接 Telegram 时，聊天按钮无法恢复连接，需通过主机管理入口处理。
+
+手动刷新和下载完成后的自动刷新都会发送“取消本次刷新”按钮；按钮只取消对应任务，过期按钮不会影响新任务。
+`/cancel_refresh` 会取消当前私聊正在执行的所有目录刷新，操作绕过普通队列。
+取消后，已发出的 OpenList 请求需等返回或超时，随后停止后续分页和递归并报告已刷新目录数；
+刷新线程退出时释放锁，之后可以重新刷新。已完成的刷新保留，下载和 `/sync` 扫描不受影响。
+自动刷新被取消后不会再次自动重试该已完成下载任务的刷新。
+
+消息展示逻辑集中在 `hosts/nas-linux/telegram-openlist-sync/ui/`：统一状态图标、标题和分段，
+目录修改时间显示为北京时间，STRM 列表每页 10 个，其他超长消息自动分条发送。
+使用纯文本排版，文件名中的特殊字符不会被当作 HTML 或 Markdown。
+新增该目录后也须纳入 Git，再执行 flake rebuild，确保 Nix 打包时包含它。
 
 离线下载复用 OpenList 已配置的下载工具，无须给 bot 提供 115 Cookie。
 在 `/etc/telegram-openlist-sync.env` 增加：
@@ -104,10 +131,12 @@ bot 调用 `/api/fs/add_offline_download`，逐条报告提交结果；提交超
 因为服务端可能已接收，请先检查 OpenList 后台。采用 `delete_never` 保留下载工具临时文件。
 
 任务 ID 持久化到服务状态目录，重启后继续通过 `/api/task/offline_download/info` 跟踪。
-下载完成后自动调用 `/api/fs/list`（`refresh=true`）刷新该任务的目标目录。
-也可点击命令菜单中的 `/refresh`，手动刷新 `OFFLINE_DOWNLOAD_PATH` 配置的目录。
-刷新不递归处理子目录，也不会启动 STRM 扫描；需要扫描时使用 `/sync`。
-刷新失败会明确提示，可用 `/refresh` 重试，不会重新提交下载任务。
+下载完成后自动调用 `/api/fs/list`（`refresh=true`）刷新该任务的目标目录，并递归刷新发现的所有子目录。
+手动刷新需先用 `/strm` 获取序号，再发送 `/refresh 序号`，空命令仅显示使用提示。
+`OFFLINE_REFRESH_RECURSIVE=true` 默认开启，`OFFLINE_REFRESH_MAX_DIRS=10000` 限制单次最多刷新目录数；批量手动刷新共享这一总上限。
+达到上限会提示未完成递归。每个目录会分页读取其子目录，文件本身不需要单独调用刷新接口。
+设为 `OFFLINE_REFRESH_RECURSIVE=false` 时只刷新根目录，不会启动 STRM 扫描；需要扫描时使用 `/sync`。
+刷新失败会明确提示，可用 `/refresh 序号` 重试，不会重新提交下载任务。
 `/downloads` 显示配置及跟踪数量，`/status` 仍查询扫描状态。
 监控超时只停止跟踪，不取消下载；失败详情在 OpenList 后台查看。
 提交成功与本地保存之间若进程崩溃，可能遗漏跟踪；后台任务仍由 OpenList 运行。
