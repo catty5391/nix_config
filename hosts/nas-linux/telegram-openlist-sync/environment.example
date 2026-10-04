@@ -15,8 +15,11 @@ OFFLINE_DOWNLOAD_PATH=
 OFFLINE_DOWNLOAD_TOOL="115 Cloud"
 OFFLINE_POLL_INTERVAL=15
 OFFLINE_TIMEOUT=86400
-# Download completion refreshes its destination; /refresh requires STRM indices
-# (at most 5). Set false to refresh only the selected roots, without recursion.
+# Once a submitted batch finishes, refresh its destination listing once, then
+# select the newest N child directories, where N is the successful link count.
+# TaskInfo has no concrete result path; this selection is a time-based heuristic.
+# /strm lists SCAN_PATH children; /refresh requires their indices (max 5).
+# Applies to manual selections and the auto-selected child: false disables recursion.
 OFFLINE_REFRESH_RECURSIVE=true
 # Total directory budget per refresh; shared by all roots in a manual batch.
 OFFLINE_REFRESH_MAX_DIRS=10000

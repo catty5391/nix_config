@@ -161,7 +161,7 @@ class BotTests(unittest.TestCase):
         self.bot.api.assert_called_once()
         with patch.object(self.bot.offline, "manual_refresh") as refresh:
             self.bot.handle(self.message("/refresh 11"))
-            refresh.assert_called_once_with(42, "/strm/folder-12")
+            refresh.assert_called_once_with(42, "/strm/folder-12", parent="/strm")
 
     def test_last_page_and_single_page_buttons(self):
         token = self.prepare_pages()
@@ -255,7 +255,7 @@ class BotTests(unittest.TestCase):
             self.bot.stop.set()
             raise RequestError("bot 正在重置或停止")
 
-        with patch.object(self.bot.offline, "refresh", side_effect=interrupted_refresh):
+        with patch.object(self.bot.offline, "list_directories", side_effect=interrupted_refresh):
             self.bot.offline.check()
         self.assertIn("task1", Bot(self.env).offline.jobs)
 
@@ -443,22 +443,224 @@ class BotTests(unittest.TestCase):
         self.bot.api = Mock(return_value={"tasks": [{"id": "task1"}]})
         self.submit()
 
-    def test_completion_refreshes_task_destination(self):
+    def create_batch(self, count=3, responses=None):
+        self.bot.api = Mock(side_effect=responses if responses is not None else [
+            {"tasks": [{"id": f"task{index}"}]} for index in range(count)])
+        self.bot.offline.submit_lock.acquire()
+        self.bot.offline._submit(42, [f"https://example.com/{index}" for index in range(count)])
+
+    def batch_api(self, states):
+        def response(endpoint, data=None):
+            if endpoint.startswith("/api/task/"):
+                return {"state": states[endpoint.split("tid=", 1)[1]]}
+            if data["path"] == "/115/Downloads":
+                return {"content": [
+                    {"name": name, "is_dir": True, "modified": f"2026-10-0{day}T00:00:00Z"}
+                    for name, day in (("older", 1), ("third", 2), ("second", 3), ("first", 4))
+                ], "total": 4}
+            return {"content": [], "total": 0}
+        return Mock(side_effect=response)
+
+    def test_batch_waits_for_all_links_and_resumes_after_restart(self):
+        self.create_batch()
+        self.assertEqual(len({j["batch_id"] for j in self.bot.offline.jobs.values()}), 1)
+        self.bot.api = self.batch_api({"task0": 2, "task1": 1, "task2": 1})
+        self.bot.offline.check()
+        self.assertEqual(self.bot.api.call_count, 3)
+        self.assertTrue(all(c.args[0].startswith("/api/task/") for c in self.bot.api.call_args_list))
+        self.assertEqual(self.bot.offline.jobs["task0"]["outcome"], "success")
+        self.bot = Bot(self.env)
+        self.bot.send = Mock()
+        # task0 need not be fetched again; its success was persisted before restart.
+        self.bot.api = self.batch_api({"task1": 2, "task2": 2})
+        self.bot.offline.check()
+        paths = [c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"]
+        self.assertEqual(paths, ["/115/Downloads", "/115/Downloads/first", "/115/Downloads/second", "/115/Downloads/third"])
+        self.assertFalse(self.bot.offline.jobs)
+        self.assertFalse(Bot(self.env).offline.jobs)
+        self.assertIn("本批成功 3 条链接", self.bot.send.call_args_list[0].args[1])
+        calls = self.bot.api.call_count
+        self.bot.offline.check()
+        self.assertEqual(self.bot.api.call_count, calls)
+
+    def test_batch_excludes_failed_and_canceled_links(self):
+        self.create_batch()
+        self.bot.api = self.batch_api({"task0": 2, "task1": 7, "task2": 4})
+        self.bot.offline.check()
+        paths = [c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"]
+        self.assertEqual(paths, ["/115/Downloads", "/115/Downloads/first"])
+        self.assertIn("本批成功 1 条", self.bot.send.call_args.args[1])
+        self.assertIn("监控超时 2 条", self.bot.send.call_args.args[1])
+
+    def test_batch_excludes_unconfirmed_submission_and_duplicate_links(self):
+        self.create_batch(responses=[{"tasks": [{"id": "task0"}]}, RequestError("HTTP 502"), {"tasks": []}])
+        self.assertEqual(len(self.bot.offline.jobs), 1)
+        self.bot.api = Mock()
+        self.bot.offline.submit_lock.acquire()
+        self.bot.offline._submit(42, ["https://example.com/0"])
+        self.bot.api.assert_not_called()
+        self.bot.api = self.batch_api({"task0": 2})
+        self.bot.offline.check()
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+
+    def test_multiple_task_ids_for_one_link_count_as_one_directory(self):
+        self.create_batch(1, responses=[{"tasks": [{"id": "task0"}, {"id": "task1"}]}])
+        self.bot.api = self.batch_api({"task0": 2, "task1": 2})
+        self.bot.offline.check()
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+
+    def test_batch_cannot_finish_while_submission_is_still_in_progress(self):
+        submissions = 0
+        def response(endpoint, data=None):
+            nonlocal submissions
+            self.assertEqual(endpoint, "/api/fs/add_offline_download")
+            # The first accepted link must not be refreshed while another is being submitted.
+            if submissions:
+                self.bot.offline.check()
+            result = {"tasks": [{"id": f"task{submissions}"}]}
+            submissions += 1
+            return result
+        self.bot.api = Mock(side_effect=response)
+        self.bot.offline.submit_lock.acquire()
+        self.bot.offline._submit(42, ["https://example.com/a", "https://example.com/b"])
+        self.assertEqual(submissions, 2)
+        self.assertEqual(len(self.bot.offline.jobs), 2)
+        self.assertFalse(self.bot.offline.submitting_batches)
+
+    def test_batch_timeout_does_not_block_successful_links_forever(self):
+        self.create_batch(2)
+        self.bot.offline.jobs["task1"]["created"] = time.time() - self.bot.offline.timeout - 1
+        self.bot.api = self.batch_api({"task0": 2})
+        self.bot.offline.check()
+        self.assertFalse(self.bot.offline.jobs)
+        self.assertIn("本批成功 1 条", self.bot.send.call_args.args[1])
+        self.assertIn("监控超时 1 条", self.bot.send.call_args.args[1])
+
+    def test_auto_batch_cancel_stops_later_directories_without_retry(self):
+        self.create_batch()
+        responder = self.batch_api({"task0": 2, "task1": 2, "task2": 2})
+        def response(endpoint, data=None):
+            result = responder(endpoint, data)
+            if data and data.get("path") == "/115/Downloads/first":
+                self.bot.offline.cancel_refresh(42)
+            return result
+        self.bot.api = Mock(side_effect=response)
+        self.bot.offline.check()
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+        self.assertFalse(Bot(self.env).offline.jobs)
+        self.assertIn("刷新已取消", self.bot.send.call_args.args[1])
+
+    def test_auto_batch_shares_limit_across_parent_and_selected_directories(self):
+        self.create_batch()
+        self.bot.offline.refresh_max_dirs = 2
+        self.bot.api = self.batch_api({"task0": 2, "task1": 2, "task2": 2})
+        self.bot.offline.check()
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+        self.assertIn("达到目录数量上限", self.bot.send.call_args.args[1])
+
+    def test_auto_batch_with_fewer_available_directories_reports_shortfall(self):
+        self.create_batch(5)
+        self.bot.api = self.batch_api({f"task{i}": 2 for i in range(5)})
+        self.bot.offline.check()
+        paths = [c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"]
+        self.assertEqual(len(paths), 5)  # One parent listing, four actual child directories.
+        self.assertIn("子目录只有 4 个", self.bot.send.call_args.args[1])
+
+    def test_old_jobs_without_batch_metadata_keep_single_link_behavior(self):
+        self.create_batch(2)
+        for job in self.bot.offline.jobs.values():
+            del job["batch_id"]
+        self.bot.offline.save()
+        self.bot = Bot(self.env)
+        self.bot.send = Mock()
+        self.bot.api = self.batch_api({"task0": 2, "task1": 1})
+        self.bot.offline.check()
+        self.assertEqual(set(self.bot.offline.jobs), {"task1"})
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+
+    def test_separate_messages_do_not_merge_refresh_batches(self):
+        self.create_batch(2)
+        self.bot.api = Mock(return_value={"tasks": [{"id": "separate"}]})
+        self.submit()
+        self.assertEqual(len({j["batch_id"] for j in self.bot.offline.jobs.values()}), 2)
+        self.bot.api = self.batch_api({"task0": 2, "task1": 1, "separate": 2})
+        self.bot.offline.check()
+        self.assertEqual(set(self.bot.offline.jobs), {"task0", "task1"})
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list if c.args[0] == "/api/fs/list"],
+                         ["/115/Downloads", "/115/Downloads/first"])
+
+    def test_completion_refreshes_only_newest_child_tree(self):
         self.create_job()
         # Previously persisted jobs may still contain a directory snapshot.
         self.bot.offline.jobs["task1"]["before"] = ["old"]
         self.bot.api = Mock(side_effect=[
             {"state": 2},
-            {"content": [{"name": "new", "is_dir": True}], "total": 1},
+            {"content": [
+                {"name": "old", "is_dir": True, "modified": "2025-01-01T00:00:00Z"},
+                {"name": "new", "is_dir": True, "modified": "2026-01-01T00:00:00Z"},
+                {"name": "file.mkv", "is_dir": False, "modified": "2026-10-01T00:00:00Z"},
+            ], "total": 3},
+            {"content": [{"name": "child", "is_dir": True}], "total": 1},
             {"content": [], "total": 0},
         ])
         self.bot.offline.check()
-        self.assertEqual(self.bot.api.call_count, 3)
-        self.assertEqual(self.bot.api.call_args_list[1].args[1]["path"], "/115/Downloads")
-        self.assertEqual(self.bot.api.call_args_list[2].args[1]["path"], "/115/Downloads/new")
+        self.assertEqual(self.bot.api.call_count, 4)
+        self.assertEqual([c.args[1]["path"] for c in self.bot.api.call_args_list[1:]],
+                         ["/115/Downloads", "/115/Downloads/new", "/115/Downloads/new/child"])
         self.assertFalse(self.bot.offline.jobs)
         self.assertIn("已完成", self.bot.send.call_args.args[1])
         self.assertIn("已递归刷新", self.bot.send.call_args.args[1])
+        self.assertIn("刷新目录数：2", self.bot.send.call_args.args[1])
+        self.assertIn("推测", self.bot.send.call_args.args[1])
+
+    def test_auto_refresh_uses_recorded_download_destination_for_old_jobs(self):
+        self.create_job()
+        self.bot.path = "/CustomSTRM"
+        self.bot.offline.jobs["task1"]["path"] = "/115/OldDownloads"
+        self.bot.api = Mock(side_effect=[{"state": 2}, {
+            "content": [{"name": "a", "is_dir": True, "modified": "2026-10-04"}], "total": 1},
+            {"content": [], "total": 0}])
+        self.bot.offline.check()
+        requests = self.bot.api.call_args_list[1:]
+        self.assertEqual([call.args[1]["path"] for call in requests], ["/115/OldDownloads", "/115/OldDownloads/a"])
+        self.assertTrue(all(call.args[1]["refresh"] for call in requests))
+        self.assertIn("下载位置：/115/OldDownloads", self.bot.send.call_args_list[1].args[1])
+
+    def test_auto_refresh_without_dated_directory_does_not_recurse(self):
+        for content in ([], [{"name": "movie.mkv", "is_dir": False}],
+                        [{"name": "unknown", "is_dir": True, "modified": "bad"}]):
+            with self.subTest(content=content):
+                self.create_job()
+                self.bot.api = Mock(side_effect=[{"state": 2}, {"content": content, "total": len(content)}])
+                self.bot.offline.check()
+                self.assertEqual(self.bot.api.call_count, 2)
+                self.assertIn("未执行子目录递归", self.bot.send.call_args.args[1])
+
+    def test_auto_refresh_directory_budget_includes_parent_listing(self):
+        self.create_job()
+        self.bot.offline.refresh_max_dirs = 1
+        self.bot.api = Mock(side_effect=[{"state": 2}, {
+            "content": [{"name": "new", "is_dir": True, "modified": "2026-10-04"}], "total": 1}])
+        self.bot.offline.check()
+        self.assertEqual(self.bot.api.call_count, 2)
+        self.assertIn("达到刷新上限", self.bot.send.call_args.args[1])
+
+    def test_cancel_after_auto_selection_does_not_start_child_refresh(self):
+        self.create_job()
+        self.bot.api = Mock(side_effect=[{"state": 2}, {
+            "content": [{"name": "new", "is_dir": True, "modified": "2026-10-04"}], "total": 1}])
+        def cancel_when_selected(chat_id, text, **kwargs):
+            if "自动刷新所选目录" in text:
+                self.bot.offline.cancel_refresh(chat_id)
+        self.bot.send.side_effect = cancel_when_selected
+        self.bot.offline.check()
+        self.assertEqual(self.bot.api.call_count, 2)
+        self.assertIn("刷新已取消", self.bot.send.call_args.args[1])
 
     def test_completion_refresh_failure_does_not_resubmit(self):
         self.create_job()
@@ -521,7 +723,7 @@ class BotTests(unittest.TestCase):
         self.prepare_pages()
         with patch.object(self.bot.offline, "manual_refresh_batch") as refresh:
             self.bot.handle(self.message("/refresh 11,1 11,3"))
-            refresh.assert_called_once_with(42, ["/strm/folder-12", "/strm/folder-22", "/strm/folder-20"])
+            refresh.assert_called_once_with(42, ["/strm/folder-12", "/strm/folder-22", "/strm/folder-20"], parent="/strm")
 
     def test_expired_batch_and_unauthorized_batch_do_not_start(self):
         self.prepare_pages()
@@ -563,6 +765,38 @@ class BotTests(unittest.TestCase):
         self.assertEqual((count, limited), (2, True))
         self.assertEqual(self.bot.api.call_count, 2)
 
+    def test_manual_batch_refreshes_parent_once_without_traversing_siblings(self):
+        self.bot.api = Mock(side_effect=[
+            {"content": [{"name": "unselected", "is_dir": True}], "total": 1},
+            {"content": [], "total": 0}, {"content": [], "total": 0},
+        ])
+        count, limited = self.bot.offline.run_refresh(["/strm/a", "/strm/b"], 42, parent="/strm")
+        self.assertEqual((count, limited), (3, False))
+        self.assertEqual([call.args[1]["path"] for call in self.bot.api.call_args_list],
+                         ["/strm", "/strm/a", "/strm/b"])
+        self.assertTrue(all(call.args[1]["refresh"] for call in self.bot.api.call_args_list))
+
+    def test_parent_failure_or_cancellation_prevents_child_refresh(self):
+        for cancel in (False, True):
+            def response(endpoint, data):
+                if cancel:
+                    self.bot.offline.cancel_refresh(42)
+                    return {"content": [], "total": 0}
+                raise RequestError("HTTP 500")
+            self.bot.api = Mock(side_effect=response)
+            self.bot.offline.refresh_lock.acquire()
+            self.bot.offline._manual_refresh(42, ["/strm/a", "/strm/b"], parent="/strm")
+            self.bot.api.assert_called_once()
+            self.assertEqual(self.bot.api.call_args.args[1]["path"], "/strm")
+            self.assertFalse(self.bot.offline.refresh_lock.locked())
+            self.assertIn("刷新已取消" if cancel else "刷新失败", self.bot.send.call_args.args[1])
+
+    def test_parent_refresh_counts_towards_manual_batch_budget(self):
+        self.bot.offline.refresh_max_dirs = 1
+        self.bot.api = Mock(return_value={"content": [], "total": 0})
+        self.assertEqual(self.bot.offline.run_refresh("/strm/a", 42, parent="/strm"), (1, True))
+        self.bot.api.assert_called_once()
+
     def test_batch_failure_stops_remaining_roots_and_unlocks(self):
         self.bot.api = Mock(side_effect=RequestError("HTTP 500"))
         self.bot.offline.refresh_lock.acquire()
@@ -592,12 +826,36 @@ class BotTests(unittest.TestCase):
         self.assertIn("/refresh 1", self.bot.send.call_args.args[1])
         self.assertEqual(self.bot.strm_choices[42]["items"], ["/strm/new", "/strm/old"])
 
-    def test_strm_uses_exact_configured_mount_path(self):
+    def test_strm_uses_scan_mount_instead_of_offline_directory(self):
         bot = Bot(dict(self.env, SCAN_PATH="/CustomSTRM"))
         bot.send = Mock()
         bot.api = Mock(return_value={"content": [], "total": 0})
         bot.handle(self.message("/strm"))
         self.assertEqual(bot.api.call_args.args[1]["path"], "/CustomSTRM")
+        self.assertEqual(bot.path, "/CustomSTRM")
+
+    def test_strm_does_not_require_offline_path(self):
+        self.bot.offline.path = ""
+        self.bot.api = Mock(return_value={"content": [], "total": 0})
+        self.bot.handle(self.message("/strm"))
+        self.bot.api.assert_called_once()
+        self.assertEqual(self.bot.api.call_args.args[1]["path"], "/strm")
+
+    def test_selected_strm_folder_does_not_refresh_sibling_or_root_tree(self):
+        self.bot.api = Mock(side_effect=[
+            {"content": [{"name": "selected", "is_dir": True, "modified": "2026-10-04"},
+                         {"name": "other", "is_dir": True, "modified": "2026-01-01"},
+                         {"name": "", "is_dir": True, "modified": "2026-10-05"}], "total": 3},
+            {"content": [{"name": "other", "is_dir": True}], "total": 1},
+            {"content": [{"name": "child", "is_dir": True}], "total": 1},
+            {"content": [], "total": 0},
+        ])
+        self.bot.handle(self.message("/strm"))
+        with patch("offline.threading.Thread") as worker:
+            self.bot.handle(self.message("/refresh 1"))
+            self.bot.offline._manual_refresh(*worker.call_args.kwargs["args"])
+        self.assertEqual([call.args[1]["path"] for call in self.bot.api.call_args_list],
+                         ["/strm", "/strm", "/strm/selected", "/strm/selected/child"])
 
     def test_missing_storage_diagnostic_omits_response_secrets(self):
         result = {"code": 500, "message": "storage not found; secret-token"}
@@ -612,7 +870,7 @@ class BotTests(unittest.TestCase):
         with patch.object(self.bot.offline, "manual_refresh") as refresh:
             self.bot.strm_choices[42] = {"created": time.monotonic(), "items": ["/STRM/new"]}
             self.bot.handle(self.message("/refresh 1"))
-            refresh.assert_called_once_with(42, "/STRM/new")
+            refresh.assert_called_once_with(42, "/STRM/new", parent="/strm")
 
     def test_expired_strm_choice_is_rejected(self):
         with patch.object(self.bot.offline, "manual_refresh") as refresh:

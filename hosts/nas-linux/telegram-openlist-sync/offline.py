@@ -93,6 +93,7 @@ class OfflineDownloads:
         self.jobs = json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
         self.lock = threading.Lock()
         self.submit_lock = threading.Lock()
+        self.submitting_batches = set()
         self.refresh_lock = threading.Lock()
         self.active_refreshes = {}
         self.active_refreshes_lock = threading.Lock()
@@ -124,7 +125,7 @@ class OfflineDownloads:
         self._check_cancel(task)
         return data
 
-    def run_refresh(self, path, chat_id):
+    def run_refresh(self, path, chat_id, recursive=None, parent=None):
         paths = [path] if isinstance(path, str) else path
         label = "\n".join(paths)
         token = secrets.token_hex(8)
@@ -132,15 +133,21 @@ class OfflineDownloads:
         with self.active_refreshes_lock:
             self.active_refreshes[token] = task
         try:
-            self.bot.send(chat_id, messages.notice("开始刷新", f"共 {len(paths)} 个目录，依次执行：\n{label}\n可随时取消整批后续刷新。", "working"),
+            preface = f"先更新父目录列表：{parent}\n" if parent else ""
+            self.bot.send(chat_id, messages.notice("开始刷新", f"{preface}共 {len(paths)} 个目录，依次执行：\n{label}\n可随时取消整批后续刷新。", "working"),
                           reply_markup=messages.cancel_refresh_buttons(token))
             count, limited = 0, False
+            if parent:
+                count += self._refresh_one(parent, task)[0]
             for selected_path in paths:
                 self._check_cancel(task)
                 if task["count"] >= self.refresh_max_dirs:
                     limited = True
                     break
-                refreshed, limited = self.refresh(selected_path, task)
+                if recursive is False:
+                    refreshed, limited = self._refresh_one(selected_path, task)[0], False
+                else:
+                    refreshed, limited = self.refresh(selected_path, task)
                 count += refreshed
                 if limited:
                     break
@@ -172,7 +179,7 @@ class OfflineDownloads:
                 content = data.get("content") or []
                 for item in content:
                     name = item.get("name") if isinstance(item, dict) else None
-                    if isinstance(item, dict) and item.get("is_dir") and isinstance(name, str) and name not in (".", "..") and "/" not in name:
+                    if isinstance(item, dict) and item.get("is_dir") and isinstance(name, str) and name not in ("", ".", "..") and "/" not in name:
                         pending.append(posixpath.join(path, name))
                 total = data.get("total", len(content))
                 if not isinstance(total, int) or total < len(content):
@@ -185,15 +192,12 @@ class OfflineDownloads:
     def refresh(self, path, task=None):
         return self.refresh_tree(path, task) if self.refresh_recursive == "true" else (*self._refresh_one(path, task), False)
 
-    def list_directories(self, root):
+    def list_directories(self, root, task=None):
         """Return immediate child directories, newest first."""
         entries = []
         page = 1
         while True:
-            data = self.bot.api("/api/fs/list", {
-                "path": root, "password": "", "page": page,
-                "per_page": 1000, "refresh": page == 1,
-            })
+            data = self._refresh_list(root, page, task)
             if not isinstance(data, dict) or not isinstance(data.get("content") or [], list):
                 raise self.bot.request_error("OpenList 目录响应格式错误")
             content = data.get("content") or []
@@ -201,7 +205,7 @@ class OfflineDownloads:
                 if not isinstance(item, dict) or not item.get("is_dir"):
                     continue
                 name = item.get("name")
-                if not isinstance(name, str) or name in (".", "..") or "/" in name:
+                if not isinstance(name, str) or name in ("", ".", "..") or "/" in name:
                     continue
                 modified = item.get("modified")
                 try:
@@ -217,20 +221,77 @@ class OfflineDownloads:
             page += 1
         return sorted(entries, key=lambda item: (item["timestamp"], item["name"]), reverse=True)
 
+    def refresh_downloaded_directory(self, job, directory_count=1):
+        """TaskInfo has no result paths; select one newest child per successful link."""
+        root = job["path"]
+        chat_id = job["chat_id"]
+        token = secrets.token_hex(8)
+        control = {"chat_id": chat_id, "cancel": threading.Event(), "count": 0}
+        with self.active_refreshes_lock:
+            self.active_refreshes[token] = control
+        try:
+            self.bot.send(chat_id, messages.notice("离线任务已完成 · 查找刷新目录",
+                          f"下载位置：{root}\n本批成功 {directory_count} 条链接，将按修改时间选择最新的 {directory_count} 个子目录。", "working"),
+                          reply_markup=messages.cancel_refresh_buttons(token))
+            directories = self.list_directories(root, control)
+            self._check_cancel(control)
+            selected = []
+            seen = set()
+            for item in directories:
+                if item["timestamp"] != 0 and item["name"] not in seen:
+                    selected.append(posixpath.join(root, item["name"]))
+                    seen.add(item["name"])
+                    if len(selected) == directory_count:
+                        break
+            if not selected:
+                text = messages.notice("离线任务已完成", f"已更新目标目录列表：{root}\n"
+                                       "没有找到具有有效修改时间的子目录，未执行子目录递归刷新。")
+            elif control["count"] >= self.refresh_max_dirs:
+                text = messages.notice("离线任务已完成 · 达到刷新上限",
+                                       f"已更新目标目录列表：{root}\n已达到目录数量上限，未递归子目录。", "warning")
+            else:
+                label = "\n".join(selected)
+                self.bot.send(chat_id, messages.notice("自动刷新所选目录",
+                              f"{label}\n选择方式：最新修改时间（推测），依次刷新这 {len(selected)} 个目录及其子目录。", "working"),
+                              reply_markup=messages.cancel_refresh_buttons(token))
+                count, limited = 0, False
+                started = []
+                for target in selected:
+                    self._check_cancel(control)
+                    if control["count"] >= self.refresh_max_dirs:
+                        limited = True
+                        break
+                    started.append(target)
+                    refreshed, limited = self.refresh(target, control)
+                    count += refreshed
+                    if limited:
+                        break
+                text = messages.refresh_complete("\n".join(started), count, limited, self.refresh_recursive == "true", downloaded=True)
+                if len(selected) < directory_count:
+                    text += f"\n符合条件的子目录只有 {len(selected)} 个，少于本批成功的 {directory_count} 条链接，按实际数量刷新。"
+                text += "\n\n选择方式：按下载目标目录中的最新修改时间选择，属于推测。"
+            with self.active_refreshes_lock:
+                self._check_cancel(control)
+                self.active_refreshes.pop(token, None)
+            return text
+        finally:
+            with self.active_refreshes_lock:
+                self.active_refreshes.pop(token, None)
+
     def _refresh_one(self, path, task=None):
         data = self._refresh_list(path, 1, task)
         if not isinstance(data, dict):
             raise self.bot.request_error("OpenList 目录响应格式错误")
         return (1,)
 
-    def manual_refresh_batch(self, chat_id, paths):
+    def manual_refresh_batch(self, chat_id, paths, parent=None):
         paths = list(dict.fromkeys(paths))
         if not paths or len(paths) > MAX_REFRESH_SELECTIONS:
             self.bot.send(chat_id, messages.notice("刷新未执行", f"每批必须选择 1 到 {MAX_REFRESH_SELECTIONS} 个文件夹。", "warning"))
             return
-        self.manual_refresh(chat_id, paths[0] if len(paths) == 1 else paths)
+        self.manual_refresh(chat_id, paths[0] if len(paths) == 1 else paths, parent=parent)
 
-    def manual_refresh(self, chat_id, path=None):
+    def manual_refresh(self, chat_id, path=None, parent=None):
         path = path or self.path
         if not path:
             self.bot.send(chat_id, messages.notice("下载目录未配置", "请先在环境文件中设置 OFFLINE_DOWNLOAD_PATH。", "warning"))
@@ -238,14 +299,16 @@ class OfflineDownloads:
         if not self.refresh_lock.acquire(blocking=False):
             self.bot.send(chat_id, messages.notice("正在刷新", "已有目录刷新任务，请稍候。", "working"))
             return
-        threading.Thread(target=self._manual_refresh, args=(chat_id, path), daemon=True).start()
+        threading.Thread(target=self._manual_refresh, args=(chat_id, path, parent), daemon=True).start()
 
-    def _manual_refresh(self, chat_id, path=None):
+    def _manual_refresh(self, chat_id, path=None, parent=None):
         path = path or self.path
         label = path if isinstance(path, str) else "\n".join(path)
         try:
-            count, limited = self.run_refresh(path, chat_id)
+            count, limited = self.run_refresh(path, chat_id, parent=parent)
             text = messages.refresh_complete(label, count, limited, self.refresh_recursive == "true")
+            if parent:
+                text += f"\n\n已先更新父目录列表：{parent}（计入刷新目录数）"
         except RefreshCancelled as exc:
             text = messages.refresh_cancelled(label, exc.count)
         except self.bot.request_error as exc:
@@ -269,6 +332,9 @@ class OfflineDownloads:
         threading.Thread(target=self._submit, args=(chat_id, links), daemon=True).start()
 
     def _submit(self, chat_id, links):
+        batch_id = secrets.token_hex(16)
+        with self.lock:
+            self.submitting_batches.add(batch_id)
         try:
             with self.lock:
                 if len(self.jobs) + len(links) > 100:
@@ -303,12 +369,15 @@ class OfflineDownloads:
                         self.jobs[task["id"]] = {
                             "chat_id": chat_id, "path": self.path,
                             "fingerprint": fingerprint, "created": time.time(),
+                            "batch_id": batch_id,
                         }
                     self.save()
                 self.bot.send(chat_id, messages.submitted(index, self.path))
         except OSError:
             self.bot.send(chat_id, messages.notice("任务状态保存失败", "请在 OpenList 中检查任务，不要直接重复提交。", "error"))
         finally:
+            with self.lock:
+                self.submitting_batches.discard(batch_id)
             self.submit_lock.release()
 
     def check(self):
@@ -317,8 +386,13 @@ class OfflineDownloads:
         for task_id, job in jobs:
             if self.bot.stop.is_set():
                 return
+            with self.lock:
+                if job.get("batch_id") in self.submitting_batches:
+                    continue
+            if job.get("outcome"):
+                continue
             if time.time() - job["created"] > self.timeout:
-                text = messages.notice("离线任务监控超时", "OpenList 任务未被取消，请到后台查看。", "warning")
+                outcome = "timeout"
             else:
                 try:
                     task = self.bot.api("/api/task/offline_download/info?tid=" + quote(task_id, safe=""), {})
@@ -327,24 +401,59 @@ class OfflineDownloads:
                     state = task.get("state")
                     # OpenListTeam/tache: succeeded=2, canceled=4, failed=7.
                     if state == 2:
-                        try:
-                            count, limited = self.run_refresh(job["path"], job["chat_id"])
-                            text = messages.refresh_complete(job["path"], count, limited, self.refresh_recursive == "true", downloaded=True)
-                        except RefreshCancelled as exc:
-                            text = messages.refresh_cancelled(job["path"], exc.count, downloaded=True)
-                        except self.bot.request_error as exc:
-                            text = messages.notice("离线任务已完成 · 目录刷新失败", f"目录：{job['path']}\n{exc}\n先用 /strm 获取列表，再用 /refresh 序号 选择目录刷新。", "warning")
+                        outcome = "success"
                     elif state in (4, 7):
-                        text = messages.notice("离线任务已取消或失败", "请到 OpenList 后台查看具体原因。", "error")
+                        outcome = "failed"
                     else:
                         continue
                 except self.bot.request_error:
                     # Retry status reads only; never resubmit download requests.
                     continue
+            with self.lock:
+                job["outcome"] = outcome
+                self.save()
+        self._finish_batches()
+
+    def _finish_batches(self):
+        with self.lock:
+            groups = {}
+            for task_id, job in self.jobs.items():
+                # Old state files did not record batches; retain one-link behavior.
+                key = (job.get("batch_id", f"legacy:{task_id}"), job["chat_id"], job["path"])
+                groups.setdefault(key, []).append((task_id, job))
+        for (batch_id, _, _), entries in groups.items():
             if self.bot.stop.is_set():
                 return
             with self.lock:
-                del self.jobs[task_id]
+                if batch_id in self.submitting_batches:
+                    continue
+            if any(not job.get("outcome") for _, job in entries):
+                continue
+            # A URL can yield multiple task IDs. Count links, not returned task IDs.
+            links = {}
+            for task_id, job in entries:
+                links.setdefault(job.get("fingerprint", task_id), []).append(job["outcome"])
+            successful = sum(all(state == "success" for state in states) for states in links.values())
+            job = entries[0][1]
+            if successful:
+                try:
+                    text = self.refresh_downloaded_directory(job, successful)
+                except RefreshCancelled as exc:
+                    text = messages.refresh_cancelled(job["path"], exc.count, downloaded=True)
+                except self.bot.request_error as exc:
+                    text = messages.notice("离线任务已完成 · 目录刷新失败", f"目录：{job['path']}\n{exc}\n先用 /strm 获取列表，再用 /refresh 序号 选择目录刷新。", "warning")
+            elif any(job["outcome"] == "timeout" for _, job in entries):
+                text = messages.notice("离线任务监控超时", "OpenList 任务未被取消，请到后台查看。", "warning")
+            else:
+                text = messages.notice("离线任务已取消或失败", "请到 OpenList 后台查看具体原因。", "error")
+            unsuccessful = len(links) - successful
+            if successful and unsuccessful:
+                text += f"\n\n本批成功 {successful} 条，失败、取消或监控超时 {unsuccessful} 条；未成功的链接不计入刷新数量。"
+            if self.bot.stop.is_set():
+                return
+            with self.lock:
+                for task_id, _ in entries:
+                    del self.jobs[task_id]
                 self.save()
             self.bot.send(job["chat_id"], text)
 

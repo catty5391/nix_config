@@ -283,25 +283,26 @@ class Bot:
     def show_strm_directories(self, chat_id):
         with self.strm_choices_lock:
             self.strm_choices.pop(chat_id, None)
+        root = self.path
         try:
-            directories = self.offline.list_directories(self.path)
+            directories = self.offline.list_directories(root)
         except RequestError as exc:
             self.send(chat_id, messages.notice("读取 STRM 目录失败", str(exc), "error"))
             return
         if not directories:
-            self.send(chat_id, messages.notice("暂无文件夹", f"{self.path} 下没有找到子文件夹。"))
+            self.send(chat_id, messages.notice("暂无文件夹", f"{root} 下没有找到子文件夹。"))
             return
         token = secrets.token_hex(6)
         with self.strm_choices_lock:
             self.strm_choices[chat_id] = {
                 "created": time.monotonic(),
-                "items": [posixpath.join(self.path, item["name"]) for item in directories],
+                "items": [posixpath.join(root, item["name"]) for item in directories],
                 "directories": directories,
-                "root": self.path,
+                "root": root,
                 "token": token,
                 "page": 0,
             }
-        self.send(chat_id, messages.directory_list(self.path, directories),
+        self.send(chat_id, messages.directory_list(root, directories),
                   reply_markup=messages.directory_buttons(token, 0, len(directories), self.reset_token))
 
     def request_reset(self, chat_id, query_id=None):
@@ -438,7 +439,8 @@ class Bot:
         if any(index < 1 or index > len(choice["items"]) for index in indices):
             self.send(chat_id, messages.notice("编号无效", f"编号范围：1 到 {len(choice['items'])}，本批次未执行任何刷新。", "warning"))
             return
-        self.offline.manual_refresh_batch(chat_id, [choice["items"][index - 1] for index in indices])
+        self.offline.manual_refresh_batch(chat_id, [choice["items"][index - 1] for index in indices],
+                                         parent=choice.get("root", self.path))
 
     def run(self):
         delay = 1

@@ -18,7 +18,7 @@ def notice(title, text, kind="info"):
 def download_prompt(path):
     return card(
         "添加离线下载", f"📂 保存位置\n{path}",
-        "请回复下载链接，每行一条，最多 20 条。\n支持：磁力 · ed2k · HTTP(S) 直链",
+        "请回复下载链接，每行一条，最多 20 条。\n支持：磁力 · ed2k · HTTP(S) 直链\n本批任务结束后，按成功链接数刷新对应数量的最新子目录。",
         "暂不支持 http://115cdn/ 链接。", icon="📥",
     )
 
@@ -57,7 +57,7 @@ def download_status(path, tool, count):
 
 
 def submitted(index, path):
-    return card(f"第 {index} 条已提交", f"📂 保存位置\n{path}", "等待 OpenList 下载，完成后会通知你。", icon="📥")
+    return card(f"第 {index} 条已提交", f"📂 保存位置\n{path}", "等待本批下载任务结束后统一刷新并通知你。", icon="📥")
 
 
 def refresh_complete(path, count, limited, recursive=True, downloaded=False):
