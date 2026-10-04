@@ -1,0 +1,19 @@
+# Copy to /etc/telegram-openlist-sync.env on the target machine (root:root, 0600).
+# systemd EnvironmentFile syntax: KEY=value, no export and no shell expansion.
+TELEGRAM_BOT_TOKEN=replace-with-bot-token
+ALLOWED_USER_ID=123456789
+OPENLIST_URL=http://127.0.0.1:5244
+OPENLIST_TOKEN=replace-with-openlist-token
+SCAN_PATH=/STRM
+SCAN_LIMIT=0
+SCAN_POLL_INTERVAL=2
+SCAN_TIMEOUT=3600
+# Existing destination directory in OpenList, not a NAS filesystem path.
+# Leave empty to disable offline submissions until configured.
+OFFLINE_DOWNLOAD_PATH=
+OFFLINE_DOWNLOAD_TOOL="115 Cloud"
+OFFLINE_POLL_INTERVAL=15
+OFFLINE_TIMEOUT=86400
+# Optional HTTP proxy for Telegram; bypass it for the OpenList host.
+# https_proxy=http://127.0.0.1:7890
+# no_proxy=127.0.0.1,localhost,192.168.1.10
