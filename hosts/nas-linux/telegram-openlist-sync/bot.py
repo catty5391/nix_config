@@ -58,6 +58,17 @@ class Bot:
             raise ValueError("ALLOWED_USER_ID 必须是正整数") from None
         if self.user_id <= 0:
             raise ValueError("ALLOWED_USER_ID 必须是正整数")
+        self.tg = f"https://api.telegram.org/bot{env['TELEGRAM_BOT_TOKEN']}"
+        self.initialize_openlist(env)
+        self.offset = (
+            int(self.offset_file.read_text()) if self.offset_file.exists() else None
+        )
+
+    def initialize_openlist(self, env):
+        """Initialize the shared OpenList configuration."""
+        for name in ("OPENLIST_URL", "OPENLIST_TOKEN"):
+            if not env.get(name, "").strip():
+                raise ValueError(f"缺少环境变量 {name}")
         self.url = env["OPENLIST_URL"].rstrip("/")
         parsed = urllib.parse.urlsplit(self.url)
         if (
@@ -68,7 +79,6 @@ class Bot:
             or parsed.fragment
         ):
             raise ValueError("OPENLIST_URL 必须是无凭据、查询参数和片段的 HTTP(S) 地址")
-        self.tg = f"https://api.telegram.org/bot{env['TELEGRAM_BOT_TOKEN']}"
         self.headers = {"Authorization": env["OPENLIST_TOKEN"]}
         self.path = env.get("SCAN_PATH", "/STRM")
         if not self.path.startswith("/"):
@@ -79,9 +89,6 @@ class Bot:
         self.stop = threading.Event()
         self.scan_lock = threading.Lock()
         self.offset_file = Path(env.get("STATE_DIRECTORY", ".")) / "offset"
-        self.offset = (
-            int(self.offset_file.read_text()) if self.offset_file.exists() else None
-        )
         self.offline = OfflineDownloads(self, env)
 
     @staticmethod
@@ -177,6 +184,10 @@ class Bot:
             return
         chat_id = chat.get("id")
         text = (message.get("text") or message.get("caption") or "").strip()
+        self.handle_text(chat_id, text)
+
+    def handle_text(self, chat_id, text):
+        """Dispatch commands after the transport has authenticated the sender."""
         parts = text.split(maxsplit=1)
         command = parts[0].lower() if parts else ""
         if command in ("download", "/download") and len(parts) == 1:
