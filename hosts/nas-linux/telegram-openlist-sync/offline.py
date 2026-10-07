@@ -11,6 +11,7 @@ from datetime import datetime
 from urllib.parse import parse_qs, quote, urlsplit
 
 from ui import messages
+from request_policy import is_risk_error
 
 MAX_REFRESH_SELECTIONS = 5
 
@@ -34,6 +35,10 @@ class RefreshCancelled(Exception):
     def __init__(self, count):
         self.count = count
         super().__init__("刷新已取消")
+
+
+class RefreshLimitReached(Exception):
+    pass
 
 
 def extract_links(text):
@@ -78,17 +83,26 @@ class OfflineDownloads:
         self.tool = env.get("OFFLINE_DOWNLOAD_TOOL", "115 Cloud").strip()
         if not self.tool:
             raise ValueError("OFFLINE_DOWNLOAD_TOOL 不能为空")
-        self.interval = bot.number(env, "OFFLINE_POLL_INTERVAL", 15)
+        self.interval = bot.number(env, "OFFLINE_POLL_INTERVAL", 60)
         self.timeout = bot.number(env, "OFFLINE_TIMEOUT", 86400)
+        self.max_active = int(env.get("OFFLINE_MAX_ACTIVE_DOWNLOADS", "1"))
+        if not 1 <= self.max_active <= 100:
+            raise ValueError("OFFLINE_MAX_ACTIVE_DOWNLOADS 必须介于 1 和 100")
         self.refresh_recursive = env.get("OFFLINE_REFRESH_RECURSIVE", "true").lower()
         if self.refresh_recursive not in ("true", "false"):
             raise ValueError("OFFLINE_REFRESH_RECURSIVE 必须为 true 或 false")
         try:
-            self.refresh_max_dirs = int(env.get("OFFLINE_REFRESH_MAX_DIRS", "10000"))
+            self.refresh_max_dirs = int(env.get("OFFLINE_REFRESH_MAX_DIRS", "100"))
+            self.refresh_max_depth = int(env.get("OFFLINE_REFRESH_MAX_DEPTH", "6"))
+            self.refresh_request_budget = int(env.get("OPENLIST_REFRESH_REQUEST_BUDGET", "200"))
         except ValueError:
-            raise ValueError("OFFLINE_REFRESH_MAX_DIRS 必须是正整数") from None
+            raise ValueError("刷新目录数、深度和请求次数上限必须是整数") from None
         if self.refresh_max_dirs < 1 or self.refresh_max_dirs > 1000000:
             raise ValueError("OFFLINE_REFRESH_MAX_DIRS 超出范围")
+        if not 0 <= self.refresh_max_depth <= 100:
+            raise ValueError("OFFLINE_REFRESH_MAX_DEPTH 必须介于 0 和 100")
+        if not 1 <= self.refresh_request_budget <= 10000:
+            raise ValueError("OPENLIST_REFRESH_REQUEST_BUDGET 必须介于 1 和 10000")
         self.state_file = bot.offset_file.parent / "offline-tasks.json"
         self.jobs = json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
         self.lock = threading.Lock()
@@ -110,13 +124,18 @@ class OfflineDownloads:
         if task is not None and (task["cancel"].is_set() or self.bot.stop.is_set()):
             raise RefreshCancelled(task["count"])
 
-    def _refresh_list(self, path, page, task):
+    def _refresh_list(self, path, page, task, force=True):
         self._check_cancel(task)
+        if task is not None:
+            if task.get("requests", 0) >= self.refresh_request_budget:
+                raise RefreshLimitReached()
+            task["requests"] = task.get("requests", 0) + 1
         try:
-            data = self.bot.api("/api/fs/list", {
-                "path": path, "password": "", "page": page,
-                "per_page": 1000, "refresh": page == 1,
-            })
+            with self.bot.requests.cancellable(task["cancel"] if task else None):
+                data = self.bot.api("/api/fs/list", {
+                    "path": path, "password": "", "page": page,
+                    "per_page": 1000, "refresh": force and page == 1,
+                })
         except self.bot.request_error:
             self._check_cancel(task)
             raise
@@ -155,17 +174,20 @@ class OfflineDownloads:
                 self._check_cancel(task)
                 self.active_refreshes.pop(token, None)
             return count, limited
+        except RefreshLimitReached:
+            return task["count"], True
         finally:
             with self.active_refreshes_lock:
                 self.active_refreshes.pop(token, None)
 
     def refresh_tree(self, root, task=None):
         """Refresh root and every discovered descendant directory."""
-        pending = [root]
+        pending = [(root, 0)]
         visited = set()
+        depth_limited = False
         while pending:
             self._check_cancel(task)
-            path = pending.pop()
+            path, depth = pending.pop()
             if path in visited:
                 continue
             if (task["count"] if task is not None else len(visited)) >= self.refresh_max_dirs:
@@ -180,14 +202,17 @@ class OfflineDownloads:
                 for item in content:
                     name = item.get("name") if isinstance(item, dict) else None
                     if isinstance(item, dict) and item.get("is_dir") and isinstance(name, str) and name not in ("", ".", "..") and "/" not in name:
-                        pending.append(posixpath.join(path, name))
+                        if depth < self.refresh_max_depth:
+                            pending.append((posixpath.join(path, name), depth + 1))
+                        else:
+                            depth_limited = True
                 total = data.get("total", len(content))
                 if not isinstance(total, int) or total < len(content):
                     raise self.bot.request_error("OpenList 目录总数格式错误")
                 if page * 1000 >= total or not content:
                     break
                 page += 1
-        return len(visited), False
+        return len(visited), depth_limited
 
     def refresh(self, path, task=None):
         return self.refresh_tree(path, task) if self.refresh_recursive == "true" else (*self._refresh_one(path, task), False)
@@ -197,7 +222,10 @@ class OfflineDownloads:
         entries = []
         page = 1
         while True:
-            data = self._refresh_list(root, page, task)
+            if page > self.refresh_request_budget:
+                raise self.bot.request_error("目录列表超过读取上限，未继续获取")
+            # Browsing /strm uses the OpenList/local cache; explicit refresh stays fresh.
+            data = self._refresh_list(root, page, task, force=task is not None)
             if not isinstance(data, dict) or not isinstance(data.get("content") or [], list):
                 raise self.bot.request_error("OpenList 目录响应格式错误")
             content = data.get("content") or []
@@ -274,6 +302,9 @@ class OfflineDownloads:
                 self._check_cancel(control)
                 self.active_refreshes.pop(token, None)
             return text
+        except RefreshLimitReached:
+            return messages.notice("离线任务已完成 · 达到刷新上限",
+                                   f"目录：{root}\n已达到本批目录读取次数上限，后续刷新停止，尚未全部完成。", "warning")
         finally:
             with self.active_refreshes_lock:
                 self.active_refreshes.pop(token, None)
@@ -349,6 +380,15 @@ class OfflineDownloads:
                 if duplicate:
                     self.bot.send(chat_id, messages.notice(f"第 {index} 条已跳过", "该链接已有正在跟踪的任务。"))
                     continue
+                # Bound OpenList's own background pollers, not just this bot's API rate.
+                while not self.bot.stop.is_set():
+                    with self.lock:
+                        active = sum(not j.get("outcome") for j in self.jobs.values())
+                    if active < self.max_active:
+                        break
+                    self.bot.stop.wait(1)
+                if self.bot.stop.is_set():
+                    return
                 try:
                     # One URL per request prevents ambiguous partial batch success.
                     data = self.bot.api("/api/fs/add_offline_download", {
@@ -357,13 +397,16 @@ class OfflineDownloads:
                     })
                 except self.bot.request_error as exc:
                     self.bot.send(chat_id, messages.notice(f"第 {index} 条提交未确认", f"{exc}\n请先检查 OpenList 任务列表，避免重复添加。", "warning"))
+                    if self.bot.requests.remaining() > 0:
+                        self.bot.send(chat_id, messages.notice("剩余链接暂停提交", "已进入请求冷却，剩余链接未提交；冷却结束后请核对任务再重新发送。", "warning"))
+                        return
                     continue
                 tasks = data.get("tasks") if isinstance(data, dict) else None
                 if not isinstance(tasks, list) or not tasks or any(
                     not isinstance(t, dict) or not isinstance(t.get("id"), str) or not t["id"] for t in tasks
                 ):
-                    self.bot.send(chat_id, messages.notice(f"第 {index} 条接口已接受", "未返回可跟踪的任务 ID，请在 OpenList 中查看结果。", "warning"))
-                    continue
+                    self.bot.send(chat_id, messages.notice(f"第 {index} 条接口已接受", "未返回可跟踪的任务 ID，无法判断下载是否结束，已停止本批后续提交。请在 OpenList 中查看结果。", "warning"))
+                    return
                 with self.lock:
                     for task in tasks:
                         self.jobs[task["id"]] = {
@@ -386,9 +429,6 @@ class OfflineDownloads:
         for task_id, job in jobs:
             if self.bot.stop.is_set():
                 return
-            with self.lock:
-                if job.get("batch_id") in self.submitting_batches:
-                    continue
             if job.get("outcome"):
                 continue
             if time.time() - job["created"] > self.timeout:
@@ -404,11 +444,15 @@ class OfflineDownloads:
                         outcome = "success"
                     elif state in (4, 7):
                         outcome = "failed"
+                        if is_risk_error(task.get("error", "")):
+                            self.bot.requests.report_task_risk()
                     else:
                         continue
+                except self.bot.request_deferred:
+                    return
                 except self.bot.request_error:
                     # Retry status reads only; never resubmit download requests.
-                    continue
+                    break
             with self.lock:
                 job["outcome"] = outcome
                 self.save()
@@ -436,12 +480,22 @@ class OfflineDownloads:
             successful = sum(all(state == "success" for state in states) for states in links.values())
             job = entries[0][1]
             if successful:
+                if self.bot.requests.remaining() > 0 or not self.refresh_lock.acquire(blocking=False):
+                    continue  # Keep the batch persisted until the current refresh/cooldown finishes.
                 try:
                     text = self.refresh_downloaded_directory(job, successful)
+                except self.bot.request_deferred:
+                    continue
                 except RefreshCancelled as exc:
                     text = messages.refresh_cancelled(job["path"], exc.count, downloaded=True)
                 except self.bot.request_error as exc:
+                    if self.bot.requests.remaining() > 0:
+                        self.bot.send(job["chat_id"], messages.notice("自动刷新已暂停",
+                                      "OpenList 请求失败，已进入冷却。下载记录已保留，冷却结束后继续刷新。", "warning"))
+                        continue
                     text = messages.notice("离线任务已完成 · 目录刷新失败", f"目录：{job['path']}\n{exc}\n先用 /strm 获取列表，再用 /refresh 序号 选择目录刷新。", "warning")
+                finally:
+                    self.refresh_lock.release()
             elif any(job["outcome"] == "timeout" for _, job in entries):
                 text = messages.notice("离线任务监控超时", "OpenList 任务未被取消，请到后台查看。", "warning")
             else:
@@ -469,4 +523,8 @@ class OfflineDownloads:
     def status(self):
         with self.lock:
             count = len(self.jobs)
-        return messages.download_status(self.path, self.tool, count)
+        text = messages.download_status(self.path, self.tool, count)
+        text += f"\n\n同时下载上限：{self.max_active} 条\n目录请求间隔：至少 {self.bot.requests.list_interval:g} 秒"
+        if self.bot.requests.remaining() > 0:
+            text += f"\n请求冷却中：剩余约 {int(self.bot.requests.remaining()) + 1} 秒"
+        return text

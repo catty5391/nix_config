@@ -58,7 +58,9 @@ sudoedit /etc/telegram-openlist-sync.env
 
 必须填写 `TELEGRAM_BOT_TOKEN`、`ALLOWED_USER_ID`（个人数字 User ID）、
 `OPENLIST_URL` 和 `OPENLIST_TOKEN`。可选项：`SCAN_PATH=/strm`（须与 OpenList 挂载路径大小写一致）、
-`SCAN_LIMIT=0`（不限速）、`SCAN_POLL_INTERVAL=2` 秒、`SCAN_TIMEOUT=3600` 秒。
+`SCAN_LIMIT=0`（不限速）、`SCAN_POLL_INTERVAL=15` 秒、`SCAN_TIMEOUT=3600` 秒。
+`OPENLIST_SCAN_ENABLED=false` 默认关闭 `/sync` 全量扫描，因为 bot 无法限制服务端扫描的实际网盘请求速度；
+确需使用时显式设为 `true`，并按服务端扫描实现配置 `SCAN_LIMIT`。
 环境文件使用 `KEY=value`，不要写 `export`；不会展开 `$VARIABLE` 或执行 shell。
 服务不会继承交互式终端的环境变量。需要代理时在此文件填写 `https_proxy`，
 并用 `no_proxy` 排除实际 OpenList 主机地址。
@@ -86,11 +88,14 @@ journalctl -u telegram-openlist-sync -f
 支持 `/refresh 1 3 5` 或 `/refresh 1,3,5`，空格及中英文逗号均可分隔，重复序号自动去重，按输入顺序依次刷新。
 每批最多选择 5 个文件夹；必须填写序号，不支持空输入、范围或路径。
 格式错误、越界、超过数量限制或列表过期都会整批拒绝，不会部分执行，也不会退回刷新整个下载目录。
-每次只运行一批手动刷新；取消按钮会停止整批后续目录，某个目录请求失败时也会停止该批次。
+手动和自动刷新共用一把锁，每次只运行一批；自动刷新等待当前批次结束，手动操作在忙碌时提示稍后再试。
+取消按钮会停止整批后续目录，某个目录请求失败时也会停止该批次。
 执行每批手动刷新时，先对 STRM 根目录调用一次 `/api/fs/list`（`refresh=true`），只更新这一层列表；
 随后按原来的序号对应路径刷新所选子目录，不重新排列编号，也不递归根目录下的其他文件夹。
 这次父目录刷新计入整批目录数量上限；父目录刷新失败或取消时不继续子目录。
 列表 15 分钟有效，翻页沿用同一份排序结果；发送 `/strm` 重新获取后旧按钮失效。
+浏览 `/strm` 不强制绕过 OpenList 缓存，bot 自身也缓存列表 5 分钟；浏览结果可能暂未包含新增目录。
+显式刷新仍强制更新，但同一路径默认至少间隔 5 分钟，未到时间时等待，取消和 Reset 仍可用。
 超长文件夹名会在列表中缩略显示，刷新仍使用完整路径。
 交互使用 [Telegram ForceReply](https://core.telegram.org/bots/api#forcereply)。
 菜单注册失败每 5 分钟重试，不影响接收消息。
@@ -119,8 +124,9 @@ NAS 整机死机或无法连接 Telegram 时，聊天按钮无法恢复连接，
 ```ini
 OFFLINE_DOWNLOAD_PATH="/115/离线下载"
 OFFLINE_DOWNLOAD_TOOL="115 Cloud"
-OFFLINE_POLL_INTERVAL=15
+OFFLINE_POLL_INTERVAL=60
 OFFLINE_TIMEOUT=86400
+OFFLINE_MAX_ACTIVE_DOWNLOADS=1
 ```
 
 目录应为 **OpenList 内已存在、可写的目标目录**，不是 NAS 本地路径；请替换示例路径。
@@ -131,6 +137,9 @@ OFFLINE_TIMEOUT=86400
 直接发送链接或 `/download 链接`，支持磁力、ed2k 和普通 HTTP(S) 下载直链。
 `http://115cdn/`（以及 HTTPS 形式）暂不支持，bot 会明确提示并拒绝整条消息中的链接。
 每行一条，每次最多 20 条；保留大小写、签名参数，批内去重，并跳过正在跟踪的相同链接。
+默认最多同时跟踪 1 个未结束下载，后续链接在内存中等待空位再提交，提交请求至少间隔 60 秒。
+批次仍在提交时会继续查询已接收任务，避免等待空位时卡住。
+重启只恢复已保存的任务，尚未提交的链接不会恢复；重发前先核对后台，避免重复添加。
 网页分享链接不会自动提取密码或转存，HTTP 链接能否下载取决于 OpenList 工具。
 bot 调用 `/api/fs/add_offline_download`，逐条报告提交结果；提交超时不自动重试，
 因为服务端可能已接收，请先检查 OpenList 后台。采用 `delete_never` 保留下载工具临时文件。
@@ -149,15 +158,32 @@ bot 会显示选中的路径并标注这是按时间推测的结果；多个任�
 没有子目录或无法得到有效修改时间时，只更新父目录列表并提示，不任意选择目录。查找目录及后续递归均支持取消。
 手动刷新需先用 `/strm` 获取序号，再发送 `/refresh 序号`，空命令仅显示使用提示。
 `OFFLINE_REFRESH_RECURSIVE=true` 默认开启，控制手动所选文件夹及自动选中的最新子目录的递归；手动每批最多 5 个的限制保持不变。
-`OFFLINE_REFRESH_MAX_DIRS=10000` 限制单次最多刷新目录数，批量手动刷新共享这一总上限，自动刷新时包含父目录列表更新。
-达到上限会提示未完成递归。每个目录会分页读取其子目录，文件本身不需要单独调用刷新接口。
-设为 `OFFLINE_REFRESH_RECURSIVE=false` 时只刷新根目录，不会启动 STRM 扫描；需要扫描时使用 `/sync`。
+`OFFLINE_REFRESH_MAX_DIRS=100` 限制单次最多刷新目录数，批量手动刷新共享这一总上限，自动刷新时包含父目录列表更新。
+`OFFLINE_REFRESH_MAX_DEPTH=6` 限制所选目录下的递归深度（所选目录为 0），`OPENLIST_REFRESH_REQUEST_BUDGET=200` 限制整批目录读取次数，包含分页。
+达到任一上限会提示未完成递归。每个目录会分页读取其子目录，文件本身不需要单独调用刷新接口。
+设为 `OFFLINE_REFRESH_RECURSIVE=false` 时只更新所选目录这一层，不会启动 STRM 扫描。
 刷新失败会明确提示，可用 `/refresh 序号` 重试，不会重新提交下载任务。
-`/downloads` 显示配置及跟踪数量，`/status` 仍查询扫描状态。
+`/downloads` 在本地显示配置、跟踪数量、同时下载上限、目录请求间隔及剩余冷却时间，不调用 OpenList；`/status` 仍查询扫描状态。
 监控超时只停止跟踪，不取消下载；失败详情在 OpenList 后台查看。
 提交成功与本地保存之间若进程崩溃，可能遗漏跟踪；后台任务仍由 OpenList 运行。
 接口与参数依据 [OpenList 官方实现](https://github.com/OpenListTeam/OpenList/blob/main/server/handles/offline_download.go)，
 协议支持取决于安装的 OpenList 版本及选用的下载工具。
+
+所有 bot 发出的 OpenList 请求统一串行限速，默认全局间隔 `OPENLIST_REQUEST_INTERVAL=10` 秒，
+目录列表间隔 `OPENLIST_LIST_INTERVAL=30` 秒，提交间隔 `OPENLIST_SUBMIT_INTERVAL=60` 秒。
+同一路径强制刷新间隔为 `OPENLIST_PATH_REFRESH_INTERVAL=300` 秒，本地列表缓存有效期为 `OPENLIST_LIST_CACHE_TTL=300` 秒。
+这些时间均为正数，间隔从上一次对应请求完成后计算，限速等待支持取消刷新和 Reset。
+HTTP 403/429、接口或任务中的风控/验证码/频繁请求提示，会触发 `OPENLIST_RISK_COOLDOWN=1800` 秒冷却；
+普通请求错误按 `OPENLIST_ERROR_BACKOFF=30` 秒指数退避，最高 900 秒，并遵守更长的 HTTP `Retry-After`。
+冷却保存在服务状态目录的 `openlist-request-state.json`，重启或 Reset 不会清除。
+自动刷新遇到这类错误会保留成功下载记录，冷却后再尝试；手动刷新停止并提示，下载提交失败则停止剩余提交，绝不自动重试写请求。
+
+以上是降低请求压力的保守默认值，不是 115 保证安全的频率。OpenList 的
+[下载任务实现](https://github.com/OpenListTeam/OpenList/blob/main/internal/offline_download/tool/download.go)
+会自行轮询下载状态，bot 限速不会改变其内部轮询，也不会停止网页、其他客户端或已有扫描产生的请求。
+默认限制同时下载数量，是为了减少 bot 新增的后台轮询任务；既有 OpenList 任务仍需在后台管理。
+更新时请核对旧环境文件：显式设置的 `OFFLINE_POLL_INTERVAL=15`、`OFFLINE_REFRESH_MAX_DIRS=10000` 等值会覆盖新默认值。
+按 `environment.example` 调整非敏感配置即可，不要覆盖原有 Token 和目录配置。
 
 扫描在后台监控，重复命令不会启动第二个本地任务；超时只结束监控，不取消 OpenList 扫描。
 重启后可以用 `/status` 查询已有扫描，但不会自动恢复完成通知。

@@ -14,15 +14,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from email.utils import parsedate_to_datetime
 
 from offline import OfflineDownloads, extract_links, parse_refresh_indices
+from request_policy import OpenListRequests, RequestError, RequestDeferred, is_risk_error
 from ui import messages
 
 LOG = logging.getLogger("telegram-openlist-sync")
-
-
-class RequestError(Exception):
-    """Safe diagnostic that never includes URLs, credentials or response bodies."""
 
 
 def http_json(url, data=None, headers=None, timeout=30):
@@ -36,7 +34,20 @@ def http_json(url, data=None, headers=None, timeout=30):
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.load(response)
     except urllib.error.HTTPError as exc:
-        raise RequestError(f"HTTP {exc.code}") from None
+        retry_after = 0
+        value = exc.headers.get("Retry-After") if exc.headers else None
+        if value:
+            try:
+                retry_after = float(value)
+            except ValueError:
+                try:
+                    retry_after = parsedate_to_datetime(value).timestamp() - time.time()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+        if not math.isfinite(retry_after) or retry_after < 0:
+            retry_after = 0
+        exc.close()
+        raise RequestError(f"HTTP {exc.code}", status=exc.code, retry_after=retry_after) from None
     except (OSError, ValueError, urllib.error.URLError):
         raise RequestError("网络连接失败、请求超时或响应不是有效 JSON") from None
     if not isinstance(result, dict):
@@ -46,6 +57,7 @@ def http_json(url, data=None, headers=None, timeout=30):
 
 class Bot:
     request_error = RequestError
+    request_deferred = RequestDeferred
 
     def __init__(self, env):
         for name in (
@@ -88,7 +100,10 @@ class Bot:
         if not self.path.startswith("/"):
             raise ValueError("SCAN_PATH 必须以 / 开头")
         self.limit = self.number(env, "SCAN_LIMIT", 0, zero=True)
-        self.interval = self.number(env, "SCAN_POLL_INTERVAL", 2)
+        self.interval = self.number(env, "SCAN_POLL_INTERVAL", 15)
+        self.scan_enabled = env.get("OPENLIST_SCAN_ENABLED", "false").lower()
+        if self.scan_enabled not in ("true", "false"):
+            raise ValueError("OPENLIST_SCAN_ENABLED 必须为 true 或 false")
         self.scan_timeout = self.number(env, "SCAN_TIMEOUT", 3600)
         self.stop = threading.Event()
         self.restart_requested = False
@@ -96,6 +111,7 @@ class Bot:
         self.commands = queue.Queue(maxsize=20)
         self.scan_lock = threading.Lock()
         self.offset_file = Path(env.get("STATE_DIRECTORY", ".")) / "offset"
+        self.requests = OpenListRequests(self, env)
         self.offline = OfflineDownloads(self, env)
         self.strm_choices = {}
         self.strm_choices_lock = threading.Lock()
@@ -131,6 +147,10 @@ class Bot:
                 break
 
     def api(self, endpoint, data=None):
+        return self.requests.call(endpoint.split("?", 1)[0], data,
+                                  lambda: self._api_request(endpoint, data))
+
+    def _api_request(self, endpoint, data=None):
         if self.stop.is_set():
             raise RequestError("bot 正在重置或停止")
         api_path = endpoint.split("?", 1)[0]
@@ -145,12 +165,14 @@ class Bot:
             code = code if type(code) is int else "unknown"
             # Classify known errors without echoing response bodies or credentials.
             missing_storage = "storage not found" in str(result.get("message", "")).lower()
+            risk = code in (403, 429) or is_risk_error(result.get("message", ""))
             reason = (
-                "找不到对应存储，请检查 OpenList 挂载路径及大小写"
+                "服务返回限流、风控或验证提示，已暂停后续请求"
+                if risk else "找不到对应存储，请检查 OpenList 挂载路径及大小写"
                 if missing_storage else "请检查 Token 权限、目录和下载工具配置"
             )
             LOG.warning("OpenList API 失败：endpoint=%s path=%r code=%s reason=%s", api_path, directory, code, reason)
-            raise RequestError(f"OpenList API 返回失败（{code}）：{reason}")
+            raise RequestError(f"OpenList API 返回失败（{code}）：{reason}", risk=risk)
         return result.get("data")
 
     def openlist(self, endpoint, data=None):
@@ -252,6 +274,9 @@ class Bot:
                 return
             self.refresh_strm_choices(chat_id, indices)
         elif command in ("sync", "/sync"):
+            if self.scan_enabled != "true":
+                self.send(chat_id, messages.notice("全量扫描已关闭", "当前使用限速的指定目录刷新。确需全量扫描时，在环境中启用 OPENLIST_SCAN_ENABLED。", "warning"))
+                return
             if not self.scan_lock.acquire(blocking=False):
                 self.send(chat_id, messages.notice("正在同步", "请使用 /status 查看进度。", "working"))
                 return

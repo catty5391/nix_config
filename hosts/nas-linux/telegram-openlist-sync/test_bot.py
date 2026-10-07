@@ -2,10 +2,12 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from unittest.mock import Mock, patch
 
-from bot import Bot, RequestError
+from bot import Bot, RequestError, http_json
 from offline import extract_links, parse_refresh_indices
+from request_policy import RequestDeferred
 from ui import messages
 
 MAGNET = "magnet:?xt=urn:btih:" + "A" * 40 + "&dn=MixedCase&tr=https%3A%2F%2FTracker"
@@ -35,6 +37,27 @@ class LinkTests(unittest.TestCase):
             extract_links("\n".join(f"https://example.com/{n}" for n in range(21)))
 
 
+class HttpTests(unittest.TestCase):
+    def test_retry_after_seconds_and_http_date(self):
+        for value in ("120", "Thu, 01 Jan 1970 00:18:40 GMT"):
+            with self.subTest(value=value):
+                error = urllib.error.HTTPError("https://example.com/secret", 429, "private body", {"Retry-After": value}, None)
+                with patch("bot.urllib.request.urlopen", side_effect=error), patch("bot.time.time", return_value=1000):
+                    with self.assertRaises(RequestError) as raised:
+                        http_json("https://example.com/secret")
+                self.assertEqual(raised.exception.status, 429)
+                self.assertEqual(raised.exception.retry_after, 120)
+                self.assertEqual(str(raised.exception), "HTTP 429")
+
+    def test_invalid_retry_after_cannot_disable_normal_cooldown(self):
+        for value in ("invalid", "nan", "inf", "-20"):
+            with self.subTest(value=value):
+                error = urllib.error.HTTPError("https://example.com", 429, "limit", {"Retry-After": value}, None)
+                with patch("bot.urllib.request.urlopen", side_effect=error), self.assertRaises(RequestError) as raised:
+                    http_json("https://example.com")
+                self.assertEqual(raised.exception.retry_after, 0)
+
+
 class BotTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -42,6 +65,7 @@ class BotTests(unittest.TestCase):
         self.env = dict(TELEGRAM_BOT_TOKEN="test", ALLOWED_USER_ID="42",
                         OPENLIST_URL="http://localhost:5244", OPENLIST_TOKEN="test",
                         STATE_DIRECTORY=self.temp.name, OFFLINE_DOWNLOAD_PATH="/115/Downloads",
+                        OFFLINE_MAX_ACTIVE_DOWNLOADS="100",
                         OFFLINE_REFRESH_RECURSIVE="true", OFFLINE_REFRESH_MAX_DIRS="100")
         self.bot = Bot(self.env)
         self.bot.send = Mock()
@@ -76,6 +100,105 @@ class BotTests(unittest.TestCase):
         self.assertIn("reset", [c["command"] for c in commands])
         self.assertEqual(self.bot.telegram.call_args_list[1].args[0], "setChatMenuButton")
         self.assertEqual(self.bot.telegram.call_args_list[0].args[1]["scope"], {"type": "all_private_chats"})
+
+    def test_sync_is_disabled_by_default_to_avoid_unbounded_server_scan(self):
+        self.bot.api = Mock()
+        self.bot.handle(self.message("/sync"))
+        self.bot.api.assert_not_called()
+        self.assertIn("全量扫描已关闭", self.bot.send.call_args.args[1])
+
+    def test_strm_browsing_uses_cache_instead_of_forcing_refresh(self):
+        self.bot.api = Mock(return_value={"content": [], "total": 0})
+        self.bot.handle(self.message("/strm"))
+        self.assertFalse(self.bot.api.call_args.args[1]["refresh"])
+
+    def test_api_risk_response_opens_circuit_without_echoing_sensitive_body(self):
+        with patch("bot.http_json", return_value={"code": 500, "message": "请求频繁 secret-token"}) as wire:
+            with self.assertLogs("telegram-openlist-sync", level="WARNING") as logs:
+                with self.assertRaises(RequestError):
+                    self.bot.api("/api/fs/list", {"path": "/strm"})
+            self.assertNotIn("secret-token", str(logs.output))
+            with self.assertRaises(RequestDeferred):
+                self.bot.api("/api/fs/add_offline_download", {})
+            wire.assert_called_once()
+            self.assertGreater(self.bot.requests.remaining(), 1790)
+            self.assertGreater(Bot(self.env).requests.remaining(), 1790)
+
+    def test_task_risk_stops_following_status_requests(self):
+        self.create_batch(2)
+        self.bot.api = Bot.api.__get__(self.bot)
+        with patch("bot.http_json", return_value={"code": 200, "data": {"state": 7, "error": "需要验证码"}}) as wire:
+            self.bot.offline.check()
+            wire.assert_called_once()
+        self.assertGreater(self.bot.requests.remaining(), 1790)
+
+    def test_auto_refresh_waits_for_manual_refresh_then_resumes(self):
+        self.create_job()
+        self.bot.offline.refresh_lock.acquire()
+        self.bot.api = Mock(return_value={"state": 2})
+        try:
+            self.bot.offline.check()
+            self.bot.api.assert_called_once()
+            self.assertIn("task1", self.bot.offline.jobs)
+        finally:
+            self.bot.offline.refresh_lock.release()
+        self.bot.api = self.batch_api({})
+        self.bot.offline.check()
+        self.assertFalse(self.bot.offline.jobs)
+
+    def test_auto_refresh_cooldown_preserves_successful_batch(self):
+        self.create_job()
+        def response(endpoint, data=None):
+            if endpoint.startswith("/api/task/"):
+                return {"state": 2}
+            self.bot.requests.report_task_risk()
+            raise RequestError("限流")
+        self.bot.api = Mock(side_effect=response)
+        self.bot.offline.check()
+        self.assertEqual(Bot(self.env).offline.jobs["task1"]["outcome"], "success")
+        self.assertFalse(self.bot.offline.refresh_lock.locked())
+        self.assertIn("自动刷新已暂停", self.bot.send.call_args.args[1])
+
+    def test_recursive_depth_and_request_budgets_stop_extra_requests(self):
+        self.bot.offline.refresh_max_depth = 0
+        self.bot.api = Mock(return_value={"content": [{"name": "child", "is_dir": True}], "total": 1})
+        self.assertEqual(self.bot.offline.run_refresh("/strm/a", 42), (1, True))
+        self.bot.api.assert_called_once()
+        self.bot.offline.refresh_max_depth = 6
+        self.bot.offline.refresh_request_budget = 1
+        self.bot.api.reset_mock()
+        self.assertEqual(self.bot.offline.run_refresh("/strm/a", 42), (1, True))
+        self.bot.api.assert_called_once()
+
+    def test_only_one_link_is_submitted_until_first_task_finishes(self):
+        self.bot.offline.max_active = 1
+        first_saved = threading.Event()
+        submissions = []
+        def response(endpoint, data=None):
+            if endpoint.startswith("/api/task/"):
+                return {"state": 2}
+            self.assertEqual(endpoint, "/api/fs/add_offline_download")
+            submissions.append(data["urls"][0])
+            return {"tasks": [{"id": f"task{len(submissions)}"}]}
+        def sent(chat_id, text, **kwargs):
+            if "第 1 条已提交" in text:
+                first_saved.set()
+        self.bot.api = Mock(side_effect=response)
+        self.bot.send.side_effect = sent
+        self.bot.offline.submit_lock.acquire()
+        worker = threading.Thread(target=self.bot.offline._submit, args=(42, [MAGNET, ED2K]), daemon=True)
+        worker.start()
+        try:
+            self.assertTrue(first_saved.wait(1))
+            self.assertEqual(submissions, [MAGNET])
+            self.bot.offline.check()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(submissions, [MAGNET, ED2K])
+            self.assertEqual(self.bot.offline.jobs["task1"]["outcome"], "success")
+        finally:
+            self.bot.stop.set()
+            worker.join(2)
 
     def test_download_menu_prompts_then_accepts_reply(self):
         with patch.object(self.bot.offline, "submit") as submit:
@@ -439,6 +562,13 @@ class BotTests(unittest.TestCase):
         self.assertIn("未返回", self.bot.send.call_args.args[1])
         self.assertFalse(self.bot.offline.jobs)
 
+    def test_missing_task_id_stops_remaining_batch_to_avoid_untracked_concurrency(self):
+        self.bot.api = Mock(return_value={"tasks": None})
+        self.bot.offline.submit_lock.acquire()
+        self.bot.offline._submit(42, [MAGNET, ED2K])
+        self.bot.api.assert_called_once()
+        self.assertIn("停止本批后续提交", self.bot.send.call_args.args[1])
+
     def create_job(self):
         self.bot.api = Mock(return_value={"tasks": [{"id": "task1"}]})
         self.submit()
@@ -515,6 +645,8 @@ class BotTests(unittest.TestCase):
         submissions = 0
         def response(endpoint, data=None):
             nonlocal submissions
+            if endpoint.startswith("/api/task/"):
+                return {"state": 2}
             self.assertEqual(endpoint, "/api/fs/add_offline_download")
             # The first accepted link must not be refreshed while another is being submitted.
             if submissions:

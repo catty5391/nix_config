@@ -18,7 +18,7 @@ def notice(title, text, kind="info"):
 def download_prompt(path):
     return card(
         "添加离线下载", f"📂 保存位置\n{path}",
-        "请回复下载链接，每行一条，最多 20 条。\n支持：磁力 · ed2k · HTTP(S) 直链\n本批任务结束后，按成功链接数刷新对应数量的最新子目录。",
+        "请回复下载链接，每行一条，最多 20 条。\n支持：磁力 · ed2k · HTTP(S) 直链\n链接会按下载并发上限排队提交；本批结束后，按成功链接数刷新对应数量的最新子目录。",
         "暂不支持 http://115cdn/ 链接。", icon="📥",
     )
 
@@ -64,7 +64,7 @@ def refresh_complete(path, count, limited, recursive=True, downloaded=False):
     scope = "已递归刷新目录" if recursive else "已刷新目录"
     title = "离线任务已完成" if downloaded else "目录刷新完成"
     return card(title, f"📂 {scope}\n{path}", f"刷新目录数：{count}",
-                "⚠️ 达到目录数量上限，未继续递归。" if limited else "",
+                "⚠️ 达到目录数量上限、递归深度或读取次数上限，后续刷新停止，尚未全部完成。" if limited else "",
                 icon="⚠️" if limited else "✅")
 
 

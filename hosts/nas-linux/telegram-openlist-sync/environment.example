@@ -6,23 +6,42 @@ OPENLIST_URL=http://127.0.0.1:5244
 OPENLIST_TOKEN=replace-with-openlist-token
 # 必须与 OpenList 挂载路径完全一致，区分大小写。
 SCAN_PATH=/strm
+# Full server-side scans cannot be paced by this bot; explicitly opt in if needed.
+OPENLIST_SCAN_ENABLED=false
 SCAN_LIMIT=0
-SCAN_POLL_INTERVAL=2
+SCAN_POLL_INTERVAL=15
 SCAN_TIMEOUT=3600
+# Minimum gaps after a completed request; shared by manual/automatic operations.
+OPENLIST_REQUEST_INTERVAL=10
+OPENLIST_LIST_INTERVAL=30
+OPENLIST_SUBMIT_INTERVAL=60
+# Repeated forced refresh of one path waits; browsing reuses cached listings.
+OPENLIST_PATH_REFRESH_INTERVAL=300
+OPENLIST_LIST_CACHE_TTL=300
+# Risk/rate-limit responses open a persistent cooldown, including across Reset.
+# Ordinary errors use exponential backoff, capped at 900 seconds.
+OPENLIST_RISK_COOLDOWN=1800
+OPENLIST_ERROR_BACKOFF=30
 # Existing destination directory in OpenList, not a NAS filesystem path.
 # Leave empty to disable offline submissions until configured.
 OFFLINE_DOWNLOAD_PATH=
 OFFLINE_DOWNLOAD_TOOL="115 Cloud"
-OFFLINE_POLL_INTERVAL=15
+OFFLINE_POLL_INTERVAL=60
 OFFLINE_TIMEOUT=86400
+# Queue links until tracked downloads finish, limiting OpenList background pollers.
+OFFLINE_MAX_ACTIVE_DOWNLOADS=1
 # Once a submitted batch finishes, refresh its destination listing once, then
 # select the newest N child directories, where N is the successful link count.
 # TaskInfo has no concrete result path; this selection is a time-based heuristic.
 # /strm lists SCAN_PATH children; /refresh requires their indices (max 5).
-# Applies to manual selections and the auto-selected child: false disables recursion.
+# Applies to manual selections and auto-selected children: false disables recursion.
 OFFLINE_REFRESH_RECURSIVE=true
 # Total directory budget per refresh; shared by all roots in a manual batch.
-OFFLINE_REFRESH_MAX_DIRS=10000
+OFFLINE_REFRESH_MAX_DIRS=100
+# Selected root is depth 0; reaching any budget reports an incomplete refresh.
+OFFLINE_REFRESH_MAX_DEPTH=6
+# Includes directory pagination; guards old MAX_DIRS values as well.
+OPENLIST_REFRESH_REQUEST_BUDGET=200
 # Optional HTTP proxy for Telegram; bypass it for the OpenList host.
 # https_proxy=http://127.0.0.1:7890
 # no_proxy=127.0.0.1,localhost,192.168.1.10
