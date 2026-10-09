@@ -1,4 +1,13 @@
 {pkgs, ...}: {
+  # Zsh 由 NixOS 管理，在同一层初始化 zoxide：z 跳转，zi 交互选择。
+  programs.zoxide = {
+    enable = true;
+    enableZshIntegration = true;
+    enableBashIntegration = false;
+    enableFishIntegration = false;
+    enableXonshIntegration = false;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
