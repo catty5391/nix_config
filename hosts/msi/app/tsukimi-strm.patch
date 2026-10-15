@@ -1,0 +1,102 @@
+diff --git a/src/client/emby_client.rs b/src/client/emby_client.rs
+index 5cb9f88..2ce32b0 100644
+--- a/src/client/emby_client.rs
++++ b/src/client/emby_client.rs
+@@ -405,6 +405,27 @@ impl EmbyClient {
+         url.to_string()
+     }
+
++    pub async fn get_external_subtitle_url(
++        &self, item_id: &str, media_source_id: &str, stream_index: u64, codec: &str,
++    ) -> String {
++        let url = self.url.lock().await.as_ref().unwrap().to_owned();
++        let extension = match codec {
++            "subrip" => "srt",
++            "webvtt" => "vtt",
++            codec => codec,
++        };
++        let path = format!(
++            "Videos/{}/{}/Subtitles/{}/Stream.{}",
++            item_id, media_source_id, stream_index, extension
++        );
++        let mut url = url.join(&path).unwrap();
++        url.query_pairs_mut().append_pair(
++            "api_key",
++            self.user_access_token.lock().await.as_str(),
++        );
++        url.to_string()
++    }
++
+     pub async fn search(
+         &self, query: &str, filter: &[&str], start_index: &str, filters_list: &FiltersList,
+     ) -> Result<List> {
+diff --git a/src/ui/mpv/page.rs b/src/ui/mpv/page.rs
+index 989c469..0233acf 100644
+--- a/src/ui/mpv/page.rs
++++ b/src/ui/mpv/page.rs
+@@ -435,6 +435,9 @@ impl Page {
+                 let media_stream =
+                     if let Some(sub_stream_index) = selected.to_owned().map(|s| s.sub_index) {
+-                        media_source.media_streams.get(sub_stream_index as usize)
++                        media_source.media_streams.iter().find(|stream| {
++                            stream.stream_type == "Subtitle"
++                                && stream.index == sub_stream_index
++                        })
+                     } else {
+                         let sub_version_list: Vec<_> = media_source
+                             .media_streams
+@@ -450,7 +453,11 @@ impl Page {
+                             .collect();
+
+                         make_subtitle_version_choice(sub_version_list)
+-                            .and_then(|index| media_source.media_streams.get(index.0 as usize))
++                            .and_then(|index| {
++                                media_source.media_streams.iter().find(|stream| {
++                                    stream.stream_type == "Subtitle" && stream.index == index.0
++                                })
++                            })
+                     };
+
+                 if let Some(slang) = selected.to_owned().map(|s| s.sub_lang) {
+@@ -461,19 +468,16 @@ impl Page {
+                 }
+
+                 let sub_url = match media_stream {
+-                    Some(stream) if stream.is_external => match &stream.delivery_url {
+-                        Some(url) => Some(EMBY_CLIENT.get_streaming_url(url).await),
+-                        None => {
+-                            println!("External Subtitle without selected source");
+-                            imp.obj()
+-                                .external_sub_url_without_selected_source(
+-                                    id,
+-                                    stream,
+-                                    media_source.id.to_owned(),
+-                                )
+-                                .await
+-                        }
+-                    },
++                    Some(stream) if stream.is_external => Some(
++                        EMBY_CLIENT
++                            .get_external_subtitle_url(
++                                &id,
++                                &media_source.id,
++                                stream.index,
++                                stream.codec.as_deref().unwrap_or("vtt"),
++                            )
++                            .await,
++                    ),
+                     _ => None,
+                 };
+
+@@ -1153,6 +1158,11 @@ pub async fn direct_stream_url(source: &MediaSource) -> Option<String> {
+ }
+
+ pub async fn extract_url(source: &MediaSource) -> Option<String> {
++    if let Some(path) = source.path.as_deref() {
++        if path.starts_with("https://") || path.starts_with("http://") {
++            return Some(path.to_owned());
++        }
++    }
+     source
+         .direct_stream_url
+         .as_ref()
