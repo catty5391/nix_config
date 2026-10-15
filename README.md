@@ -33,6 +33,18 @@ sudo nixos-rebuild switch --flake .#laptop
 
 全新安装环境中使用 `nixos-install --flake .#laptop`。
 
+## Shell 目录跳转
+
+共享的 `modules/nixos/zsh.nix` 通过 NixOS 的 `programs.zoxide` 初始化 Zsh，适用于 `msi` 和 `nas-linux`。
+重建对应主机后打开新终端，或执行 `exec zsh`。先用 `cd` 访问目录，zoxide 会自动记录：
+
+- `z nix_config`：按关键词跳到已记录的目录。
+- `z nix config`：用多个关键词匹配路径。
+- `zi`：通过已有的 fzf 交互选择目录。
+- `z -`：返回上一个目录。
+
+保留原生 `cd`；各用户的访问记录独立保存。
+
 ## 凭据与脱敏策略
 
 仓库不保存密码哈希、SSH 公钥、SSH 私钥、订阅文件或令牌。

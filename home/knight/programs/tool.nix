@@ -111,12 +111,6 @@
     enableZshIntegration = true;
   };
 
-  # zoxide智能目录跳转
-  programs.zoxide = {
-    enable = true;
-    enableZshIntegration = true;
-  };
-
   # btop系统监控 主题
   programs.btop.enable = true;
   catppuccin.btop = {

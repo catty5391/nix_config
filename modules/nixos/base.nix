@@ -45,6 +45,9 @@
   environment.systemPackages = with pkgs;
     [
       maven
+      zoxide
+      unrar
+      rar
       openssl
       wechat
       zellij
