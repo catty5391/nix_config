@@ -44,6 +44,7 @@
 
   environment.systemPackages = with pkgs;
     [
+      maven
       openssl
       wechat
       zellij
