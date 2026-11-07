@@ -1,5 +1,6 @@
 {
   imports = [
+    ./java.nix
     ./direnv.nix
     ./zed.nix
     ./neovide.nix
