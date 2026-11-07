@@ -35,6 +35,12 @@
       "wireshark"
     ];
   };
+  # 动态库链接支持
+  programs.nix-ld.enable = true;
+
+  programs.nix-ld.libraries = with pkgs; [
+    glibc
+  ];
 
   # wheel用户组sudo免密
   security.sudo.wheelNeedsPassword = false;
