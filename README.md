@@ -45,6 +45,22 @@ sudo nixos-rebuild switch --flake .#laptop
 
 保留原生 `cd`；各用户的访问记录独立保存。
 
+## 终端配色
+
+Kitty、Alacritty 和 Ghostty 通过 Home Manager 的 `catppuccin` 模块使用 Mocha，
+配置位于 `home/knight/terminal/`。Starship 在 `modules/nixos/zsh.nix` 中读取
+已锁定的 Catppuccin 官方调色板，保留现有提示符布局；Home Manager 复用相同设置，
+Zsh 仍仅由 NixOS 初始化一次。Noctalia 的终端主题模板已禁用。
+
+在本仓库目录执行以下命令应用到 MSI，然后重新打开终端：
+
+```bash
+sudo nixos-rebuild switch --flake .#msi
+```
+
+NAS 使用 `.#nas-linux`。修改配色请编辑 Nix 文件，生成的 `~/.config/starship.toml`
+及终端配置由 Home Manager 管理。
+
 ## 凭据与脱敏策略
 
 仓库不保存密码哈希、SSH 公钥、SSH 私钥、订阅文件或令牌。

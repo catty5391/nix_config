@@ -27,5 +27,14 @@
       IdentitiesOnly yes
       ServerAliveCountMax 3
       ServerAliveInterval 60
+
+    Host gongwei
+      HostName office.hec00fec1.nyat.app
+      User panqiheng
+      Port 52819
+      IdentityFile ~/.ssh/gongwei
+      IdentitiesOnly yes
+      ServerAliveInterval 60
+      ServerAliveCountMax 3
   '';
 }

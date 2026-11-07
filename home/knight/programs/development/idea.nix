@@ -1,7 +1,5 @@
-{ pkgs, ... }:
-
-{
+{pkgs-unstable, ...}: {
   home.packages = [
-    pkgs.jetbrains.idea
+    pkgs-unstable.jetbrains.idea
   ];
 }

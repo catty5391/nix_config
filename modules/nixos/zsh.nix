@@ -1,4 +1,9 @@
-{pkgs, ...}: {
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: {
   # Zsh 由 NixOS 管理，在同一层初始化 zoxide：z 跳转，zi 交互选择。
   programs.zoxide = {
     enable = true;
@@ -47,60 +52,64 @@
     enable = true;
     presets = ["nerd-font-symbols"];
 
-    settings = {
-      # 主题配置
-      add_newline = false;
-      command_timeout = 1000;
+    # Reuse the official palette from the locked Catppuccin input. Home Manager
+    # inherits these settings, so user and system fallback prompts stay in sync.
+    settings =
+      (lib.importTOML "${config.catppuccin.sources.starship}/mocha.toml")
+      // {
+        palette = "catppuccin_mocha";
+        add_newline = false;
+        command_timeout = 1000;
 
-      username = {
-        show_always = true;
-        style_user = "bold green";
-        style_root = "bold red";
-        format = "[$user]($style)";
-      };
+        username = {
+          show_always = true;
+          style_user = "bold green";
+          style_root = "bold red";
+          format = "[$user]($style)";
+        };
 
-      hostname = {
-        ssh_only = true;
-        style = "bold green";
-        format = "[@$hostname]($style) ";
-      };
+        hostname = {
+          ssh_only = true;
+          style = "bold green";
+          format = "[@$hostname]($style) ";
+        };
 
-      directory = {
-        style = "bold blue";
-        truncation_length = 4;
-        truncate_to_repo = false;
-      };
+        directory = {
+          style = "bold blue";
+          truncation_length = 4;
+          truncate_to_repo = false;
+        };
 
-      git_branch = {
-        symbol = " ";
-        style = "bold purple";
-      };
+        git_branch = {
+          symbol = " ";
+          style = "bold mauve";
+        };
 
-      git_status = {
-        style = "bold yellow";
-      };
+        git_status = {
+          style = "bold yellow";
+        };
 
-      java = {
-        symbol = " ";
-        style = "bold red";
-      };
+        java = {
+          symbol = " ";
+          style = "bold red";
+        };
 
-      nix_shell = {
-        symbol = "❄ ";
-        style = "bold cyan";
-        format = "via [$symbol$state]($style) ";
-      };
+        nix_shell = {
+          symbol = "❄ ";
+          style = "bold teal";
+          format = "via [$symbol$state]($style) ";
+        };
 
-      docker_context = {
-        symbol = " ";
-        style = "bold blue";
-      };
+        docker_context = {
+          symbol = " ";
+          style = "bold blue";
+        };
 
-      character = {
-        success_symbol = "[❯](bold green)";
-        error_symbol = "[❯](bold red)";
+        character = {
+          success_symbol = "[❯](bold green)";
+          error_symbol = "[❯](bold red)";
+        };
       };
-    };
   };
 
   environment.systemPackages = with pkgs; [
