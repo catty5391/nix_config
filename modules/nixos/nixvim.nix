@@ -4,34 +4,35 @@
   ...
 }: let
   system = pkgs.stdenv.hostPlatform.system;
-  baseNixvim = inputs.CookNixvim.packages.${system}.default;
-  nixvim = baseNixvim.extend (import ./nixvim);
+  nixvim = inputs.my-nixvim.packages.${system}.default;
 in {
   # The package embeds the shared configuration for every user, including root.
-  environment.systemPackages = [nixvim] ++ (with pkgs; [
-    git
-    curl
-    unzip
-    gnutar
-    gzip
+  environment.systemPackages =
+    [nixvim]
+    ++ (with pkgs; [
+      git
+      curl
+      unzip
+      gnutar
+      gzip
 
-    gcc
-    tree-sitter
-    gnumake
-    pkg-config
+      gcc
+      tree-sitter
+      gnumake
+      pkg-config
 
-    ripgrep
-    fd
-    fzf
-    yazi
+      ripgrep
+      fd
+      fzf
+      yazi
 
-    nodejs
-    python3
-    clang-tools
-    lua-language-server
+      nodejs
+      python3
+      clang-tools
+      lua-language-server
 
-    stylua
-  ]);
+      stylua
+    ]);
 
   environment.sessionVariables = {
     EDITOR = "nvim";
